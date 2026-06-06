@@ -71,12 +71,14 @@ export async function retrieveMemorySelection(params: {
 
   const [
     currentStateMarkdown,
+    hooksMarkdown,
     volumeSummariesMarkdown,
     structuredCurrentState,
     structuredHooks,
     structuredSummaries,
   ] = await Promise.all([
     readCurrentStateWithFallback(params.bookDir),
+    readFile(join(storyDir, "pending_hooks.md"), "utf-8").catch(() => ""),
     readFile(join(storyDir, "volume_summaries.md"), "utf-8").catch(() => ""),
     readStructuredState(join(stateDir, "current_state.json"), CurrentStateStateSchema),
     readStructuredState(join(stateDir, "hooks.json"), HooksStateSchema),
@@ -100,6 +102,11 @@ export async function retrieveMemorySelection(params: {
     parseVolumeSummariesMarkdown(volumeSummariesMarkdown),
     narrativeQueryTerms,
   );
+  // Hooks stay on the authority path instead of the SQLite acceleration path:
+  // the DB table intentionally stores only a small subset and cannot preserve
+  // promoted/core/dependency metadata, which is load-bearing for hook debt.
+  const hooks = structuredHooks?.hooks ?? parsePendingHooksMarkdown(hooksMarkdown);
+  const activeHooks = filterActiveHooks(hooks);
 
   const memoryDb = openMemoryDB(params.bookDir);
   if (memoryDb) {
@@ -112,19 +119,9 @@ export async function retrieveMemorySelection(params: {
           memoryDb.replaceSummaries(summaries);
         }
       }
-      if (memoryDb.getActiveHooks().length === 0) {
-        const hooks = structuredHooks?.hooks ?? parsePendingHooksMarkdown(
-          await readFile(join(storyDir, "pending_hooks.md"), "utf-8").catch(() => ""),
-        );
-        if (hooks.length > 0) {
-          memoryDb.replaceHooks(hooks);
-        }
-      }
       if (memoryDb.getCurrentFacts().length === 0 && facts.length > 0) {
         memoryDb.replaceCurrentFacts(facts);
       }
-
-      const activeHooks = memoryDb.getActiveHooks();
 
       return {
         summaries: selectRelevantSummaries(
@@ -144,13 +141,10 @@ export async function retrieveMemorySelection(params: {
     }
   }
 
-  const [summariesMarkdown, hooksMarkdown] = await Promise.all([
+  const [summariesMarkdown] = await Promise.all([
     readFile(join(storyDir, "chapter_summaries.md"), "utf-8").catch(() => ""),
-    readFile(join(storyDir, "pending_hooks.md"), "utf-8").catch(() => ""),
   ]);
   const summaries = structuredSummaries?.rows ?? parseChapterSummariesMarkdown(summariesMarkdown);
-  const hooks = structuredHooks?.hooks ?? parsePendingHooksMarkdown(hooksMarkdown);
-  const activeHooks = filterActiveHooks(hooks);
 
   return {
     summaries: selectRelevantSummaries(summaries, params.chapterNumber, narrativeQueryTerms),

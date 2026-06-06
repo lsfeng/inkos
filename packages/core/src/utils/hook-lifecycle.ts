@@ -19,7 +19,13 @@ function normalizeStoredHookStatus(status: string): "resolved" | "deferred" | "p
 }
 
 export function filterActiveHooks(hooks: ReadonlyArray<StoredHook>): StoredHook[] {
-  return hooks.filter((hook) => normalizeStoredHookStatus(hook.status) !== "resolved");
+  return hooks.filter((hook) => {
+    const status = normalizeStoredHookStatus(hook.status);
+    if (status === "resolved" || status === "deferred") return false;
+    // promoted=false means this is still an architect seed, not live hook debt.
+    // Legacy rows without the promoted column keep the old behavior.
+    return hook.promoted !== false;
+  });
 }
 
 export function isFuturePlannedHook(

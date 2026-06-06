@@ -21,6 +21,7 @@ import {
   parseChapterSummariesMarkdown,
   parseInteger,
   parseMarkdownTableRows,
+  parsePendingHooksMarkdown,
 } from "../utils/story-markdown.js";
 
 export {
@@ -279,27 +280,14 @@ async function loadOrBootstrapSummaries(params: {
 }
 
 function parsePendingHooksStateMarkdown(markdown: string, warnings: string[]) {
-  const tableRows = parseMarkdownTableRows(markdown)
-    .filter((row) => (row[0] ?? "").toLowerCase() !== "hook_id");
-
-  if (tableRows.length > 0) {
+  const parsedHooks = parsePendingHooksMarkdown(markdown);
+  if (parsedHooks.length > 0) {
     return HooksStateSchema.parse({
-      hooks: tableRows
-        .filter((row) => normalizeHookId(row[0]).length > 0)
-        .map((row) => {
-          const hookId = normalizeHookId(row[0]);
-          const legacyShape = row.length < 8;
-          return {
-            hookId,
-            startChapter: parseStrictIntegerWithWarning(row[1], warnings, `${hookId}:startChapter`),
-            type: normalizeHookType(row[2], warnings, hookId),
-            status: normalizeHookStatus(row[3], warnings, hookId),
-            lastAdvancedChapter: parseStrictIntegerWithWarning(row[4], warnings, `${hookId}:lastAdvancedChapter`),
-            expectedPayoff: row[5] ?? "",
-            payoffTiming: legacyShape ? undefined : normalizeHookPayoffTiming(row[6]),
-            notes: legacyShape ? (row[6] ?? "") : (row[7] ?? ""),
-          };
-        }),
+      hooks: parsedHooks.map((hook) => ({
+        ...hook,
+        type: normalizeHookType(hook.type, warnings, hook.hookId),
+        status: normalizeHookStatus(hook.status, warnings, hook.hookId),
+      })),
     });
   }
 
