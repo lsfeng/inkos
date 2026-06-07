@@ -3308,6 +3308,11 @@ describe("PipelineRunner", () => {
       auditIssues: [],
       lengthWarnings: [],
     }]);
+    await writeFile(
+      join(chaptersDir, "0002_旧标题.md"),
+      "# 第2章 旧标题\n\n旧正文不应该在重导入后继续留在目录里。",
+      "utf-8",
+    );
     const importedBody = [
       "老丁守了三十年桥，第一次在河灯节后半夜离开值班室。",
       "",
@@ -3338,12 +3343,14 @@ describe("PipelineRunner", () => {
     });
 
     const savedChapter = await readFile(join(chaptersDir, "0002_河灯还亮着.md"), "utf-8");
+    const chapterFiles = await readdir(chaptersDir);
     const savedIndex = await state.loadChapterIndex(bookId);
     const expectedCount = countChapterLength(importedBody, "zh_chars");
 
     expect(result.importedCount).toBe(1);
     expect(result.totalWords).toBe(expectedCount);
     expect(savedChapter).toContain(importedBody);
+    expect(chapterFiles).not.toContain("0002_旧标题.md");
     expect(savedIndex[1]?.wordCount).toBe(expectedCount);
     expect(savedIndex[1]?.title).toBe("河灯还亮着");
 

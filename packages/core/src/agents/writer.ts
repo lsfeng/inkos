@@ -48,7 +48,7 @@ import {
   renderNarrativeSelectedContext,
   sanitizeNarrativeEvidenceBlock,
 } from "../utils/narrative-control.js";
-import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 const LEGACY_WRITER_CONTEXT_BUDGET = {
@@ -701,6 +701,12 @@ export class WriterAgent extends BaseAgent {
 
     const paddedNum = String(output.chapterNumber).padStart(4, "0");
     const filename = `${paddedNum}_${this.sanitizeFilename(output.title)}.md`;
+    const existingChapterFiles = await readdir(chaptersDir).catch(() => []);
+    await Promise.all(
+      existingChapterFiles
+        .filter((file) => file.startsWith(`${paddedNum}_`) && file.endsWith(".md") && file !== filename)
+        .map((file) => rm(join(chaptersDir, file), { force: true })),
+    );
 
     const heading = language === "en"
       ? `# Chapter ${output.chapterNumber}: ${output.title}`
