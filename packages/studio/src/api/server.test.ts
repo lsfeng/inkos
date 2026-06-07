@@ -3004,6 +3004,34 @@ describe("createStudioServer daemon lifecycle", () => {
     expect(runAgentSessionMock).not.toHaveBeenCalled();
   });
 
+  it("handles explicit chat edits against role-card truth files", async () => {
+    const rolePath = join(root, "books", "demo-book", "story", "roles", "主要角色", "林月.md");
+    await mkdir(join(root, "books", "demo-book", "story", "roles", "主要角色"), { recursive: true });
+    await writeFile(rolePath, "# 林月\n\n- 动机：守住旧账册。\n", "utf-8");
+
+    const { createStudioServer } = await import("./server.js");
+    const app = createStudioServer(cloneProjectConfig() as never, root);
+
+    const response = await app.request("http://localhost/api/v1/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        instruction: "把 books/demo-book/story/roles/主要角色/林月.md 里的「守住旧账册」改成「查清账册里的失踪名单」",
+        activeBookId: "demo-book",
+        sessionId: "agent-session-1",
+        sessionKind: "edit",
+        requestedIntent: "edit_artifact",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      response: expect.stringContaining("已直接编辑 books/demo-book/story/roles/主要角色/林月.md"),
+    });
+    await expect(readFile(rolePath, "utf-8")).resolves.toContain("查清账册里的失踪名单");
+    expect(runAgentSessionMock).not.toHaveBeenCalled();
+  });
+
   it("does not bypass the agent for edit-shaped questions", async () => {
     await mkdir(join(root, "covers", "demo"), { recursive: true });
     await writeFile(join(root, "covers", "demo", "cover-prompt.md"), "标题字太小。\n", "utf-8");

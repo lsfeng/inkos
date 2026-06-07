@@ -70,6 +70,19 @@ describe("agent deterministic writing tools", () => {
       .resolves.toContain("distrusts the guild");
   });
 
+  it("writes role cards through the deterministic truth-file tool path", async () => {
+    const tool = createWriteTruthFileTool({} as never, root, "harbor");
+
+    const result = await tool.execute("tool-role", {
+      fileName: "roles/主要角色/林月.md",
+      content: "# 林月\n\n- 动机：守住码头账册，但不再相信公会。\n",
+    });
+
+    expect(result.content[0]?.type).toBe("text");
+    await expect(readFile(join(state.bookDir("harbor"), "story", "roles", "主要角色", "林月.md"), "utf-8"))
+      .resolves.toContain("不再相信公会");
+  });
+
   it("renames entities through the deterministic edit controller", async () => {
     const tool = createRenameEntityTool({} as never, root, "harbor");
 

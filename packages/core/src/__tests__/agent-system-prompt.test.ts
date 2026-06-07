@@ -20,6 +20,8 @@ describe("buildAgentSystemPrompt", () => {
       expect(prompt).toContain("当前正在处理书籍「my-book」");
       expect(prompt).toContain("sub_agent");
       expect(prompt).toContain("writer");
+      expect(prompt).toContain("角色卡编辑走 write_truth_file");
+      expect(prompt).toContain("roles/主要角色/<角色名>.md");
     });
 
     it("English plain chat also has no production tool instructions", () => {
@@ -32,6 +34,14 @@ describe("buildAgentSystemPrompt", () => {
       expect(prompt).not.toContain("generate_cover:");
       expect(prompt).not.toContain("play_start:");
       expect(prompt).not.toContain("architect");
+    });
+
+    it("edit mode treats role cards as editable truth files", () => {
+      const prompt = buildAgentSystemPrompt("my-book", "zh", "edit");
+      expect(prompt).toContain("外部编辑助手");
+      expect(prompt).toContain("角色卡也是可编辑设定文件");
+      expect(prompt).toContain("roles/major/<name>.md");
+      expect(prompt).toContain("write_truth_file");
     });
 
     it("requires self-contained proposed action instructions", () => {
