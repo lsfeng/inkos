@@ -35,6 +35,34 @@ describe("PlayStore", () => {
     }
   });
 
+  it("persists optional world and visual contracts as natural-language rules", async () => {
+    const root = await mkdtemp(join(tmpdir(), "inkos-play-store-"));
+    const store = new PlayStore(root);
+
+    try {
+      await store.createWorld({
+        id: "contract-world",
+        title: "雨夜合租屋",
+        premise: "玩家刚搬进一间合租屋，室友都在隐瞒昨夜停电时发生的事。",
+        mode: "open",
+        worldContract: [
+          "时间按早晨/下午/夜晚推进。",
+          "重要室友有自己的目标和隐瞒事项，会在玩家不追问时自行行动。",
+          "物件不使用 RPG 稀有度，只按情绪重量分层。",
+        ].join("\n"),
+        visualContract: "物件的情绪重量通过摆放距离、磨损、光线和人物反应体现，不要游戏边框或数值 UI。",
+      } as any);
+
+      await expect(store.loadWorld("contract-world")).resolves.toMatchObject({
+        title: "雨夜合租屋",
+        worldContract: expect.stringContaining("室友有自己的目标"),
+        visualContract: expect.stringContaining("不要游戏边框"),
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("creates world/run storage and persists JSONL events", async () => {
     const root = await mkdtemp(join(tmpdir(), "inkos-play-store-"));
     const store = new PlayStore(root);

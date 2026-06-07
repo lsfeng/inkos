@@ -164,6 +164,14 @@ describe("buildAgentSystemPrompt", () => {
       expect(prompt).toContain("propose_action");
       expect(prompt).toContain("play_start");
       expect(prompt).toContain("propose_action 就是确认卡");
+      expect(prompt).toContain("playStart.worldContract");
+      expect(prompt).toContain("playStart.visualContract");
+      expect(prompt).toContain("playStart.initialScene 是确认后第一眼展示给玩家的正文场面");
+      expect(prompt).toContain("设定摘要放 premise/worldContract");
+      expect(prompt).toContain("动作跳板放 suggestedActions");
+      expect(prompt).toContain("不要擅自加等级、数值、RPG 面板或固定每回合时间");
+      expect(prompt).toContain("不要为了让确认卡更完整而补具体年限");
+      expect(prompt).toContain("用户说“刚入门”就保持刚入门");
       expect(prompt).toContain("不要先用普通文字整理一遍再等用户二次确认");
       expect(prompt).not.toContain("play_step：");
       expect(prompt).not.toContain("short_fiction_run");
@@ -190,6 +198,8 @@ describe("buildAgentSystemPrompt", () => {
         requestedIntent: "play_start",
       });
       expect(prompt).toContain("play_start");
+      expect(prompt).toContain("worldContract");
+      expect(prompt).toContain("没有明确规则就留空");
       expect(prompt).not.toContain("play_step");
       expect(prompt).not.toContain("propose_action");
       expect(prompt).not.toContain("short_fiction_run");
@@ -277,6 +287,13 @@ describe("buildAgentSystemPrompt", () => {
     it("forbids claiming side effects without successful tool execution", () => {
       expect(buildAgentSystemPrompt(null, "zh", "chat")).toContain("不要虚报工具执行结果");
       expect(buildAgentSystemPrompt(null, "en", "chat")).toContain("do not claim side effects without successful tool results");
+    });
+
+    it("treats tool calls as the answer instead of encouraging filler before tools", () => {
+      expect(buildAgentSystemPrompt(null, "zh", "play", { playWorldExists: false })).toContain("工具调用本身就是回答");
+      expect(buildAgentSystemPrompt(null, "zh", "play", { playWorldExists: false })).toContain("不要先写寒暄");
+      expect(buildAgentSystemPrompt(null, "en", "play", { playWorldExists: false })).toContain("the tool call itself is the answer");
+      expect(buildAgentSystemPrompt(null, "en", "play", { playWorldExists: false })).toContain("do not add filler");
     });
   });
 });

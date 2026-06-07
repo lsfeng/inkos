@@ -203,6 +203,40 @@ describe("applyPlayMutation", () => {
     });
   });
 
+  it("downgrades holding edges for observed intangible evidence", () => {
+    const db = new FakePlayDB();
+
+    applyPlayMutation({
+      db,
+      mutation: {
+        eventId: "evt-5",
+        turn: 5,
+        actionKind: "look",
+        summary: "玩家看见草叶避开玉符。",
+        entities: {
+          upsert: [
+            { id: "actor_player", type: "actor", label: "采药弟子" },
+            { id: "evidence_grass", type: "evidence", label: "草叶回避现象" },
+            { id: "evidence_note", type: "evidence", label: "夹层纸条" },
+            { id: "item_amulet", type: "item", label: "裂纹玉符" },
+          ],
+        },
+        edges: {
+          upsert: [
+            { id: "edge-grass", fromId: "actor_player", type: "持有", toId: "evidence_grass", value: { role: "holding" } },
+            { id: "edge-note", fromId: "actor_player", type: "持有", toId: "evidence_note", value: { role: "holding", physical: true } },
+            { id: "edge-amulet", fromId: "actor_player", type: "持有", toId: "item_amulet", value: { role: "holding" } },
+          ],
+        },
+      },
+      rawInput: "观察草叶，不捡玉符",
+    });
+
+    expect(db.edges.get("edge-grass")?.value).toMatchObject({ role: "observed" });
+    expect(db.edges.get("edge-note")?.value).toMatchObject({ role: "holding", physical: true });
+    expect(db.edges.get("edge-amulet")?.value).toMatchObject({ role: "holding" });
+  });
+
   it("rejects evidence status regressions", () => {
     const db = new FakePlayDB();
     db.upsertEntity({ id: "receipt", type: "evidence", label: "住院收据" });

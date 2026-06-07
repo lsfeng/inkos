@@ -245,6 +245,17 @@ export function getProposedActionDetails(exec: ToolExecution): ProposedActionDet
   };
 }
 
+export function getProposedActionContractRows(details: ProposedActionDetails): ReadonlyArray<{ label: string; value: string }> {
+  const playStart = details.actionPayload?.playStart;
+  if (details.action !== "play_start" || !playStart) return [];
+  const rows: Array<{ label: string; value: string }> = [];
+  const worldContract = playStart.worldContract?.trim();
+  if (worldContract) rows.push({ label: "世界契约", value: worldContract });
+  const visualContract = playStart.visualContract?.trim();
+  if (visualContract) rows.push({ label: "视觉契约", value: visualContract });
+  return rows;
+}
+
 function ProposedActionPreview({
   exec,
   onProposedAction,
@@ -265,6 +276,7 @@ function ProposedActionPreview({
   const resolution = resolvedProposals[details.execId];
   const streaming = isActiveSessionStreaming;
   const locked = resolution !== undefined;
+  const contractRows = getProposedActionContractRows(details);
   return (
     <div className="mx-3 mb-3 mt-1 rounded-xl border border-primary/25 bg-primary/5 px-3 py-3">
       <div className="text-sm font-semibold text-foreground">{details.title ?? "确认执行"}</div>
@@ -274,6 +286,16 @@ function ProposedActionPreview({
       <div className="mt-2 rounded-lg bg-background/70 px-2.5 py-2 text-xs leading-5 text-muted-foreground">
         {details.instruction}
       </div>
+      {contractRows.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {contractRows.map((row) => (
+            <div key={row.label} className="rounded-lg border border-border/50 bg-background/60 px-2.5 py-2">
+              <div className="text-[11px] font-semibold text-foreground">{row.label}</div>
+              <div className="mt-1 text-xs leading-5 text-muted-foreground">{row.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
       {resolution === "confirmed" ? (
         <div className="mt-3 flex items-center gap-1.5 text-xs font-medium text-primary">
           <Check size={13} className="shrink-0" />

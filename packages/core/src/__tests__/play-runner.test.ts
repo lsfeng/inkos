@@ -88,6 +88,12 @@ describe("PlayRunner", () => {
       turn: 1,
       actionKind: "look",
       summary: "发现新城花园 187 次。",
+      timeAdvance: {
+        elapsed: "几秒",
+        anchor: "仍在停车场刚上车的片刻",
+        rationale: "宋词只是顺手点开车机记录。",
+        synchronized: ["徐晋安放完东西坐进车里，尚未察觉她看见统计。"],
+      },
       entities: {
         upsert: [
           { id: "player", type: "actor", label: "宋词" },
@@ -143,15 +149,26 @@ describe("PlayRunner", () => {
     expect(db.entities.get("nav-stats")?.type).toBe("evidence");
     const renderInput = renderSpy.mock.calls[0]?.[0] as { stateBrief: string } | undefined;
     expect(renderInput?.stateBrief).toContain("player -[持有 role=holding]-> nav-stats");
+    expect(renderInput?.stateBrief).toContain("## Time");
+    expect(renderInput?.stateBrief).toContain("elapsed: 几秒");
+    expect(renderInput?.stateBrief).toContain("anchor: 仍在停车场刚上车的片刻");
     expect(db.stateSlots.get("evidence:nav-stats:status")?.value).toMatchObject({ status: "seen" });
 
     const runDir = join(root, "worlds", "betrayal-car", "runs", "run-1");
     await expect(readFile(join(runDir, "events.jsonl"), "utf-8"))
       .resolves.toContain("\"id\":\"evt-1\"");
+    await expect(readFile(join(runDir, "events.jsonl"), "utf-8"))
+      .resolves.toContain("\"elapsed\":\"几秒\"");
+    await expect(readFile(join(runDir, "events.jsonl"), "utf-8"))
+      .resolves.toContain("\"anchor\":\"仍在停车场刚上车的片刻\"");
     await expect(readFile(join(runDir, "transcript.jsonl"), "utf-8"))
       .resolves.toContain("我假装看天气");
     await expect(readFile(join(runDir, "projections", "state.md"), "utf-8"))
       .resolves.toContain("发现新城花园 187 次");
+    await expect(readFile(join(runDir, "state", "current.json"), "utf-8"))
+      .resolves.toContain("\"elapsed\": \"几秒\"");
+    await expect(readFile(join(runDir, "state", "current.json"), "utf-8"))
+      .resolves.toContain("\"anchor\": \"仍在停车场刚上车的片刻\"");
     await expect(readFile(join(runDir, "projections", "scene.md"), "utf-8"))
       .resolves.toContain("屏幕弹出新城花园 187 次");
   });
@@ -181,7 +198,7 @@ describe("PlayRunner", () => {
       },
       edges: {
         upsert: [
-          { id: "edge_actor_player_持有_evidence_baby_photo", fromId: "actor_player", type: "持有", toId: "evidence_baby_photo", value: { role: "holding" }, validFromEventId: "evt-0", sourceEventId: "evt-0" },
+          { id: "edge_actor_player_持有_evidence_baby_photo", fromId: "actor_player", type: "持有", toId: "evidence_baby_photo", value: { role: "holding", physical: true }, validFromEventId: "evt-0", sourceEventId: "evt-0" },
         ],
       },
       stateSlots: {
@@ -282,6 +299,8 @@ describe("PlayRunner", () => {
       title: "雨夜茶馆",
       premise: "玩家扮演阿福，雨夜茶馆跑堂，被一笔镖队旧账拖进江湖纠纷。",
       language: "zh",
+      worldContract: "时间是世界同步轴：问话可能只过几分钟，赶路可能过半天，闭关可能跨年；老陈和铁手镖队会在同一段时间里按自己的目标行动，不能只等玩家触发。",
+      visualContract: "旧账和镖队信物的重量通过纸张磨损、光线压迫和旁人反应体现，不要游戏 UI。",
     });
     await store.ensureRun("rain-teahouse", "run-1");
     await store.writeProjection("rain-teahouse", "run-1", "projections/scene.md", "雨夜茶馆里，老陈在柜台后拨算盘。\n");
@@ -313,6 +332,7 @@ describe("PlayRunner", () => {
       return mutation;
     });
 
+    const renderSpy = vi.fn(async (_input: unknown) => ({ sceneText: "老陈指节一顿，算盘珠子碰出一声脆响。", suggestedActions: [] }));
     const runner = new PlayRunner({
       projectRoot: root,
       worldId: "rain-teahouse",
@@ -322,7 +342,7 @@ describe("PlayRunner", () => {
       agents: {
         actionInterpreter: { interpret: vi.fn(async () => action) },
         worldMutator: { proposeMutation },
-        sceneRenderer: { render: vi.fn(async () => ({ sceneText: "老陈指节一顿，算盘珠子碰出一声脆响。", suggestedActions: [] })) },
+        sceneRenderer: { render: renderSpy },
       },
     });
 
@@ -330,9 +350,59 @@ describe("PlayRunner", () => {
 
     expect(mutatorContext).toContain("世界设定");
     expect(mutatorContext).toContain("阿福");
+    expect(mutatorContext).toContain("世界契约");
+    expect(mutatorContext).toContain("时间是世界同步轴");
+    expect(mutatorContext).toContain("视觉契约");
+    expect(mutatorContext).toContain("不要游戏 UI");
     expect(mutatorContext).toContain("当前实体名册");
     expect(mutatorContext).toContain("actor_laochen [actor]: 老陈");
     expect(mutatorContext).toContain("org_tieshou_escort [organization]: 铁手镖队");
+    expect(renderSpy).toHaveBeenCalledWith(expect.objectContaining({
+      worldPremise: expect.stringContaining("世界契约"),
+    }));
+  });
+
+  it("does not duplicate a reconciler summary that repeats the mutator summary", async () => {
+    const db = new FakePlayDB();
+    const runner = new PlayRunner({
+      projectRoot: root,
+      worldId: "summary-dedupe",
+      runId: "main",
+      db,
+      agents: {
+        actionInterpreter: { interpret: vi.fn(async () => ({ actionKind: "wait", intent: "屏息观察" })) },
+        worldMutator: {
+          proposeMutation: vi.fn(async () => ({
+            eventId: "evt-1",
+            turn: 1,
+            actionKind: "wait",
+            summary: "你屏住呼吸，默默数着门外那人的呼吸节奏。",
+          })),
+        },
+        sceneRenderer: {
+          render: vi.fn(async () => ({
+            sceneText: "门外的人也停了一息。",
+            suggestedActions: [],
+          })),
+        },
+        sceneReconciler: {
+          reconcile: vi.fn(async () => ({
+            eventId: "evt-1",
+            turn: 1,
+            actionKind: "wait",
+            summary: "你屏住呼吸，默默数着门外那人的呼吸节奏。",
+          })),
+        },
+      },
+    });
+
+    await runner.step("我不碰铜匣，先屏住呼吸。");
+
+    expect(db.events[0]?.outcomeSummary).toBe("你屏住呼吸，默默数着门外那人的呼吸节奏。");
+    await expect(readFile(join(root, "worlds", "summary-dedupe", "runs", "main", "events.jsonl"), "utf-8"))
+      .resolves
+      .not
+      .toContain("；你屏住呼吸");
   });
 
   it("reconciles concrete entities introduced by renderer prose back into the graph", async () => {
@@ -406,5 +476,64 @@ describe("PlayRunner", () => {
     await expect(readFile(join(root, "worlds", "renderer-noun", "runs", "run-1", "projections", "state.md"), "utf-8"))
       .resolves
       .toContain("黑色U盘");
+  });
+
+  it("deduplicates same-id entity updates before writing the state projection", async () => {
+    const db = new FakePlayDB();
+    const action: PlayActionIntentInput = {
+      actionKind: "look",
+      intent: "观察白帆船间隔",
+    };
+    const mutation: PlayMutationInput = {
+      eventId: "evt-1",
+      turn: 1,
+      actionKind: "look",
+      summary: "玩家确认白帆船规律绕行。",
+      entities: {
+        upsert: [{
+          id: "actor_white_sailboat",
+          type: "actor",
+          label: "白帆船",
+          summary: "一艘没有航灯、没有登记的白帆船。",
+          status: "绕行",
+          updatedEventId: "evt-1",
+        }],
+      },
+    };
+    const reconcile = vi.fn(async () => ({
+      eventId: "evt-1",
+      turn: 1,
+      actionKind: "look",
+      summary: "玩家确认白帆船规律绕行。",
+      entities: {
+        upsert: [{
+          id: "actor_white_sailboat",
+          type: "actor",
+          label: "白帆船",
+          summary: "一艘没有航灯、没有登记的白帆船，正按灯光旋转周期规律绕行。",
+          status: "规律绕行",
+          updatedEventId: "evt-1",
+        }],
+      },
+    }));
+    const runner = new PlayRunner({
+      projectRoot: root,
+      worldId: "dedupe-projection",
+      runId: "run-1",
+      db,
+      agents: {
+        actionInterpreter: { interpret: vi.fn(async () => action) },
+        worldMutator: { proposeMutation: vi.fn(async () => mutation) },
+        sceneRenderer: { render: vi.fn(async () => ({ sceneText: "白帆船再次滑进光锥。", suggestedActions: [] })) },
+        sceneReconciler: { reconcile },
+      },
+    });
+
+    await runner.step("我数白帆船下一次进灯光边缘的间隔");
+
+    const state = await readFile(join(root, "worlds", "dedupe-projection", "runs", "run-1", "projections", "state.md"), "utf-8");
+    expect(state.match(/actor_white_sailboat/g)?.length).toBe(1);
+    expect(state).toContain("正按灯光旋转周期规律绕行");
+    expect(state).not.toContain("一艘没有航灯、没有登记的白帆船。");
   });
 });

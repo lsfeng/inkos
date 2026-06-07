@@ -17,6 +17,8 @@ const PlayWorldSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   premise: z.string().default(""),
+  worldContract: z.string().default(""),
+  visualContract: z.string().default(""),
   mode: z.enum(["open", "guided"]).default("open"),
   language: z.enum(["zh", "en"]).default("zh"),
   createdAt: z.string().min(1),

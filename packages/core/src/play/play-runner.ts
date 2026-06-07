@@ -17,7 +17,7 @@ import {
 } from "./play-agents.js";
 import { createPlayDB } from "./play-db-factory.js";
 import { applyPlayMutation, seedPlayGraph, type PlayReducerDB } from "./play-reducer.js";
-import { PlayStore } from "./play-store.js";
+import { PlayStore, type PlayWorld } from "./play-store.js";
 import type { PlayGraphSnapshot } from "./play-file-db.js";
 
 export interface PlayActionInterpreterLike {
@@ -129,14 +129,15 @@ export class PlayRunner {
       ambiguity: "",
       secondaryActions: [],
     };
-    const context = await this.buildContextBrief(input.sceneText, language, world?.premise);
+    const worldContext = renderPlayWorldContext(world, language);
+    const context = await this.buildContextBrief(input.sceneText, language, world);
     const mutation = PlayMutationSchema.parse(await this.worldMutator.proposeMutation({
       turn: 0,
       input: buildOpeningSeedInput({
         sceneText: input.sceneText,
         suggestedActions: input.suggestedActions ?? [],
         language,
-        premise: world?.premise,
+        premise: worldContext,
       }),
       action,
       context,
@@ -171,7 +172,8 @@ export class PlayRunner {
       sceneBrief: sceneBrief || (language === "en" ? "A new turn begins; carry over the current world state." : "新回合开始，沿用当前世界状态。"),
       language,
     }));
-    const context = await this.buildContextBrief(sceneBrief, language, world?.premise);
+    const worldContext = renderPlayWorldContext(world, language);
+    const context = await this.buildContextBrief(sceneBrief, language, world);
     const mutation = PlayMutationSchema.parse(await this.worldMutator.proposeMutation({
       turn,
       input: rawInput,
@@ -192,7 +194,7 @@ export class PlayRunner {
       stateBrief,
       mode: world?.mode ?? "open",
       language,
-      worldPremise: world?.premise,
+      worldPremise: worldContext,
     });
 
     const finalMutation = this.sceneReconciler && !mutation.blocked
@@ -205,7 +207,7 @@ export class PlayRunner {
         context,
         stateBrief,
         language,
-        worldPremise: world?.premise,
+        worldPremise: worldContext,
       })))
       : mutation;
     const finalStateBrief = finalMutation === mutation ? stateBrief : renderStateBrief({ action, mutation: finalMutation });
@@ -223,7 +225,10 @@ export class PlayRunner {
       lastEventId: applied.event.id,
       lastAction: action,
       lastSummary: finalMutation.summary,
+      timeAdvance: finalMutation.timeAdvance ?? null,
       blocked: finalMutation.blocked,
+      worldContract: world?.worldContract ?? "",
+      visualContract: world?.visualContract ?? "",
     });
     await this.store.writeProjection(this.options.worldId, this.options.runId, "projections/scene.md", `${render.sceneText}\n`);
     await this.store.appendTranscriptTurn(this.options.worldId, this.options.runId, {
@@ -244,16 +249,15 @@ export class PlayRunner {
     };
   }
 
-  private async buildContextBrief(sceneBrief: string, language: "zh" | "en", worldPremise?: string): Promise<string> {
+  private async buildContextBrief(sceneBrief: string, language: "zh" | "en", world: PlayWorld | null): Promise<string> {
     const stateBrief = await this.readOptionalProjection("projections/state.md");
     const isEn = language === "en";
-    const premise = worldPremise?.trim();
-    const premiseLabel = isEn ? "World setting:" : "世界设定：";
+    const worldContext = renderPlayWorldContext(world, language);
     const sceneLabel = isEn ? "Current scene:" : "当前场景：";
     const stateLabel = isEn ? "Current state:" : "当前状态：";
     const entityRoster = renderEntityRoster(readGraphSnapshot(this.db)?.entities ?? [], language);
     return [
-      premise ? `${premiseLabel}\n${premise}` : "",
+      worldContext,
       entityRoster,
       sceneBrief ? `${sceneLabel}\n${sceneBrief}` : "",
       stateBrief ? `${stateLabel}\n${stateBrief}` : "",
@@ -294,6 +298,26 @@ function buildOpeningSeedInput(input: {
   return lines.filter(Boolean).join("\n\n");
 }
 
+function renderPlayWorldContext(world: PlayWorld | null | undefined, language: "zh" | "en"): string {
+  if (!world) return "";
+  const premise = world.premise?.trim();
+  const worldContract = world.worldContract?.trim();
+  const visualContract = world.visualContract?.trim();
+  const isEn = language === "en";
+  const blocks = [
+    premise
+      ? `${isEn ? "World setting" : "世界设定"}:\n${premise}`
+      : "",
+    worldContract
+      ? `${isEn ? "World contract (high priority; obey before genre defaults)" : "世界契约（高优先级，先于题材惯例）"}:\n${worldContract}`
+      : "",
+    visualContract
+      ? `${isEn ? "Visual contract (for scene and image consistency)" : "视觉契约（保持场景和配图一致）"}:\n${visualContract}`
+      : "",
+  ].filter(Boolean);
+  return blocks.join("\n\n");
+}
+
 function readGraphSnapshot(db: PlayReducerDB): PlayGraphSnapshot | null {
   const maybeSnapshot = (db as { readonly snapshot?: unknown }).snapshot;
   if (typeof maybeSnapshot !== "function") {
@@ -308,26 +332,55 @@ function readGraphSnapshot(db: PlayReducerDB): PlayGraphSnapshot | null {
 
 function mergePlayMutations(base: PlayMutation, supplement: PlayMutation): PlayMutation {
   if (isEmptyMutationSupplement(supplement)) return base;
+  const summary = mergeMutationSummary(base.summary, supplement.summary);
   return PlayMutationSchema.parse({
     ...base,
-    summary: supplement.summary?.trim()
-      ? `${base.summary || ""}${base.summary ? "；" : ""}${supplement.summary}`.trim()
-      : base.summary,
+    summary,
     entities: {
-      upsert: [...base.entities.upsert, ...supplement.entities.upsert],
+      upsert: mergeById([...base.entities.upsert, ...supplement.entities.upsert]),
     },
     edges: {
-      upsert: [...base.edges.upsert, ...supplement.edges.upsert],
+      upsert: mergeById([...base.edges.upsert, ...supplement.edges.upsert]),
       expire: [...base.edges.expire, ...supplement.edges.expire],
     },
     stateSlots: {
-      upsert: [...base.stateSlots.upsert, ...supplement.stateSlots.upsert],
+      upsert: mergeById([...base.stateSlots.upsert, ...supplement.stateSlots.upsert]),
     },
     evidence: {
       transitions: [...base.evidence.transitions, ...supplement.evidence.transitions],
     },
+    timeAdvance: base.timeAdvance ?? supplement.timeAdvance,
     notes: [...base.notes, ...supplement.notes],
   });
+}
+
+function mergeById<T extends { readonly id: string }>(items: ReadonlyArray<T>): T[] {
+  const order: string[] = [];
+  const byId = new Map<string, T>();
+  for (const item of items) {
+    if (!byId.has(item.id)) order.push(item.id);
+    byId.set(item.id, item);
+  }
+  return order.map((id) => byId.get(id)!);
+}
+
+function mergeMutationSummary(base: string, supplement: string): string {
+  const left = base.trim();
+  const right = supplement.trim();
+  if (!right) return left;
+  if (!left) return right;
+  const normalizedLeft = normalizeSummaryForDedupe(left);
+  const normalizedRight = normalizeSummaryForDedupe(right);
+  if (normalizedLeft === normalizedRight) return left;
+  if (normalizedLeft.includes(normalizedRight)) return left;
+  if (normalizedRight.includes(normalizedLeft)) return right;
+  return `${left}；${right}`;
+}
+
+function normalizeSummaryForDedupe(value: string): string {
+  return value
+    .replace(/[\s，,。.!！?？；;：:、"'“”‘’「」『』（）()[\]{}《》<>—\-…]+/g, "")
+    .toLowerCase();
 }
 
 function isEmptyMutationSupplement(mutation: PlayMutation): boolean {
@@ -392,6 +445,24 @@ function renderStateBrief(input: {
     lines.push("", "## State Slots");
     for (const slot of input.mutation.stateSlots.upsert) {
       lines.push(`- ${slot.id}: ${JSON.stringify(slot.value)}`);
+    }
+  }
+  if (input.mutation.timeAdvance) {
+    lines.push("", "## Time");
+    if (input.mutation.timeAdvance.elapsed) {
+      lines.push(`- elapsed: ${input.mutation.timeAdvance.elapsed}`);
+    }
+    if (input.mutation.timeAdvance.anchor) {
+      lines.push(`- anchor: ${input.mutation.timeAdvance.anchor}`);
+    }
+    if (input.mutation.timeAdvance.rationale) {
+      lines.push(`- rationale: ${input.mutation.timeAdvance.rationale}`);
+    }
+    if (input.mutation.timeAdvance.synchronized.length > 0) {
+      lines.push("- synchronized:");
+      for (const item of input.mutation.timeAdvance.synchronized) {
+        lines.push(`  - ${item}`);
+      }
     }
   }
   if (input.mutation.evidence.transitions.length > 0) {

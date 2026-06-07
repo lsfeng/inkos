@@ -144,10 +144,16 @@ describe("agent deterministic writing tools", () => {
     const zh = await zhTool.execute("proposal-zh", {
       action: "create_book",
       instruction: "写一本港风商战小说",
+      createBook: {
+        title: "港风商战",
+      },
     });
     const en = await enTool.execute("proposal-en", {
       action: "generate_cover",
       instruction: "Generate a cover for Night Ledger.",
+      generateCover: {
+        title: "Night Ledger",
+      },
     });
 
     expect(zh.content[0]?.type).toBe("text");
@@ -210,10 +216,10 @@ describe("agent deterministic writing tools", () => {
     });
   });
 
-  it("drops truncated play initial scenes from confirmation payloads", async () => {
+  it("rejects truncated play initial scenes in confirmation payloads", async () => {
     const tool = createProposeActionTool("zh");
 
-    const result = await tool.execute("proposal-play", {
+    await expect(tool.execute("proposal-play", {
       action: "play_start",
       instruction: "开一个旧戏院检修互动世界，从配电室和后台开始。",
       playStart: {
@@ -223,6 +229,24 @@ describe("agent deterministic writing tools", () => {
         initialScene: "剧目是《挑滑车》，主演栏里有个名字叫",
         suggestedActions: ["检查演出表", "走向配电室"],
       },
+    })).rejects.toThrow("playStart.initialScene");
+  });
+
+  it("keeps play world and visual contracts in the structured confirmation payload", async () => {
+    const tool = createProposeActionTool("zh");
+
+    const result = await tool.execute("proposal-play-contract", {
+      action: "play_start",
+      instruction: "开一个合租屋关系互动世界，物件有心动层级但不要游戏数值。",
+      playStart: {
+        title: "雨夜合租屋",
+        premise: "我刚搬进合租屋，室友们都在隐瞒停电夜的事。",
+        mode: "open",
+        worldContract: "时间按动作语义推进；室友会自主行动；物件按心动层级表达关系变化，不使用 RPG 稀有度。",
+        visualContract: "心动层级通过摆放距离、磨损、光线和人物反应体现，不要绿蓝紫橙边框或游戏 UI。",
+        initialScene: "雨刚停，餐桌上多了一只贴着我名字的旧瓷杯。",
+        suggestedActions: ["拿起旧瓷杯", "观察室友的反应"],
+      },
     });
 
     expect(result.details).toMatchObject({
@@ -230,14 +254,11 @@ describe("agent deterministic writing tools", () => {
       action: "play_start",
       actionPayload: {
         playStart: {
-          title: "旧戏院夜巡",
-          premise: "我在县城旧戏院做夜间检修，停电后舞台下传来拍板声。",
-          mode: "open",
-          suggestedActions: ["检查演出表", "走向配电室"],
+          worldContract: expect.stringContaining("室友会自主行动"),
+          visualContract: expect.stringContaining("不要绿蓝紫橙边框"),
         },
       },
     });
-    expect((result.details as any).actionPayload.playStart).not.toHaveProperty("initialScene");
   });
 
   it("falls back to the tool argument when confirmed play payload contains a truncated initial scene", async () => {
@@ -280,7 +301,7 @@ describe("agent deterministic writing tools", () => {
   it("does not emit a confirmation card when the proposed action payload is invalid", async () => {
     const tool = createProposeActionTool("zh");
 
-    const result = await tool.execute("proposal-invalid", {
+    await expect(tool.execute("proposal-invalid", {
       action: "create_book",
       instruction: "创建《夜间派送》",
       createBook: {
@@ -288,17 +309,18 @@ describe("agent deterministic writing tools", () => {
         platform: "tomato",
         unsafeExtra: "must not reach the UI",
       },
-    } as never);
+    } as never)).rejects.toThrow("Invalid proposed action payload");
+  });
 
-    expect(result.details).toMatchObject({
-      kind: "proposed_action_error",
-      action: "create_book",
-    });
-    expect(result.details).not.toHaveProperty("actionPayload");
-    expect(result.content[0]).toMatchObject({
-      type: "text",
-      text: expect.stringContaining("Invalid proposed action payload"),
-    });
+  it("rejects Play confirmation cards without structured execution payload", async () => {
+    const tool = createProposeActionTool("zh");
+
+    await expect(tool.execute("proposal-play-missing-payload", {
+      action: "play_start",
+      title: "玄照山外门",
+      summary: "卡内已提炼所有长期规则。",
+      instruction: "启动玄照山外门开放世界，时间是世界同步轴，角色会自主行动。",
+    })).rejects.toThrow("playStart.title");
   });
 
   it("can propose opening existing assisted creation workflows without claiming production", async () => {

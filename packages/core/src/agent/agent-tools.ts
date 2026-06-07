@@ -171,12 +171,22 @@ const ProposeActionParams = Type.Object({
   playStart: Type.Optional(Type.Object({
     title: Type.Optional(Type.String({ description: "Confirmed interactive world title." })),
     premise: Type.Optional(Type.String({ description: "Confirmed playable premise." })),
+    worldContract: Type.Optional(Type.String({
+      description: "Confirmed durable world contract in natural language: time semantics, role autonomy, object/clue/relationship rules, taboos, or other long-lived rules the user explicitly asked for. Do not invent RPG/level systems.",
+    })),
+    visualContract: Type.Optional(Type.String({
+      description: "Confirmed visual contract for Play illustrations in natural language. Only include user-defined visual semantics; do not invent game frames, colored tiers, UI, or stats.",
+    })),
     mode: Type.Optional(Type.Union([
       Type.Literal("open"),
       Type.Literal("guided"),
     ], { description: "Confirmed play mode: open for free actions, guided for suggested choices." })),
-    initialScene: Type.Optional(Type.String({ description: "Confirmed opening playable scene." })),
-    suggestedActions: Type.Optional(Type.Array(SuggestedActionParam)),
+    initialScene: Type.Optional(Type.String({
+      description: "Confirmed opening scene shown to the player after confirmation. It must be pure narrative prose, not a title/setup/rules summary, not a question prompt, and not an action/options list.",
+    })),
+    suggestedActions: Type.Optional(Type.Array(SuggestedActionParam, {
+      description: "Optional action springboards shown as separate UI chips. Do not include these in initialScene.",
+    })),
   }, { description: "Structured execution args for action=play_start." })),
   generateCover: Type.Optional(Type.Object({
     title: Type.Optional(Type.String({ description: "Confirmed cover title." })),
@@ -269,6 +279,10 @@ function compactPlayStartPayload(value: ProposeActionParamsType["playStart"]): N
   if (title) out.title = title;
   const premise = value.premise?.trim();
   if (premise) out.premise = premise;
+  const worldContract = value.worldContract?.trim();
+  if (worldContract) out.worldContract = worldContract;
+  const visualContract = value.visualContract?.trim();
+  if (visualContract) out.visualContract = visualContract;
   if (value.mode) out.mode = value.mode;
   const initialScene = value.initialScene?.trim();
   if (isUsablePlayInitialScene(initialScene)) out.initialScene = initialScene;
@@ -308,6 +322,27 @@ function validateProposedActionPayload(payload: ActionPayload | undefined): {
   return { error: parsed.error.issues.map((issue) => issue.message).join("; ") };
 }
 
+function requireProposedText(value: string | undefined, label: string): void {
+  if (typeof value === "string" && value.trim().length > 0) return;
+  throw new Error(`propose_action is missing ${label}; retry with that field in the structured payload, not only in summary or instruction.`);
+}
+
+function assertExecutableProposedAction(params: ProposeActionParamsType, payload: ActionPayload | undefined): void {
+  if (params.action === "create_book") {
+    requireProposedText(payload?.createBook?.title, "createBook.title");
+    return;
+  }
+  if (params.action === "play_start") {
+    requireProposedText(payload?.playStart?.title, "playStart.title");
+    requireProposedText(payload?.playStart?.premise, "playStart.premise");
+    requireProposedText(payload?.playStart?.initialScene, "playStart.initialScene");
+    return;
+  }
+  if (params.action === "generate_cover") {
+    requireProposedText(payload?.generateCover?.title, "generateCover.title");
+  }
+}
+
 export function createProposeActionTool(
   language: "zh" | "en" = "zh",
   options: ProposeActionToolOptions = {},
@@ -327,13 +362,10 @@ export function createProposeActionTool(
       const summary = params.summary?.trim() || proposedActionFallbackSummary(params.action, isZh);
       const proposedPayload = validateProposedActionPayload(proposedActionPayload(params));
       if (proposedPayload.error) {
-        return textResult(`Invalid proposed action payload: ${proposedPayload.error}`, {
-          kind: "proposed_action_error",
-          action: params.action,
-          error: proposedPayload.error,
-        });
+        throw new Error(`Invalid proposed action payload: ${proposedPayload.error}`);
       }
       const actionPayload = proposedPayload.payload;
+      assertExecutableProposedAction(params, actionPayload);
       return textResult(
         [
           title,
@@ -849,12 +881,18 @@ const PlayStartParams = Type.Object({
   premise: Type.Optional(Type.String({
     description: "Playable premise: player role, location, pressure, and core conflict. Keep it concise.",
   })),
+  worldContract: Type.Optional(Type.String({
+    description: "Durable world contract in natural language. Preserve only user-defined long-lived rules: semantic time, role autonomy, object/clue/relationship systems, taboos, or setting laws. Leave empty when the user did not define rules; do not invent RPG/level systems.",
+  })),
+  visualContract: Type.Optional(Type.String({
+    description: "Visual contract for Play illustrations. Preserve only user-defined visual rules; leave empty when unspecified. Do not invent game frames, colored tiers, UI, or stats.",
+  })),
   mode: Type.Optional(Type.Union([
     Type.Literal("open"),
     Type.Literal("guided"),
   ], { description: "open = free actions; guided = emphasize suggested actions. Default open." })),
   initialScene: Type.Optional(Type.String({
-    description: "Opening scene shown to the player. Write this as the first playable moment, not as a config summary.",
+    description: "Opening scene shown to the player. Write pure narrative prose for the first playable moment, not a config summary, not a question prompt, and not an action/options list.",
   })),
   suggestedActions: Type.Optional(Type.Array(SuggestedActionParam)),
 });
@@ -901,14 +939,18 @@ export function createPlayStartTool(
       const runId = "main";
       const title = playPayload?.title ?? params.title;
       const premise = playPayload?.premise ?? params.premise;
+      const worldContract = playPayload?.worldContract ?? params.worldContract;
+      const visualContract = playPayload?.visualContract ?? params.visualContract;
       const initialScene = isUsablePlayInitialScene(playPayload?.initialScene)
         ? playPayload?.initialScene
         : params.initialScene;
-      const playLanguage = inferLanguage([title, premise, initialScene].filter(Boolean).join("\n"));
+      const playLanguage = inferLanguage([title, premise, worldContract, visualContract, initialScene].filter(Boolean).join("\n"));
       const world = await store.createWorld({
         id: worldId,
         title: title.trim(),
         premise: premise?.trim() ?? "",
+        worldContract: worldContract?.trim() ?? "",
+        visualContract: visualContract?.trim() ?? "",
         mode: playMode ?? params.mode ?? "open",
         language: playLanguage,
       });
@@ -926,6 +968,8 @@ export function createPlayStartTool(
           runId,
           mode: world.mode,
           premise: world.premise,
+          worldContract: world.worldContract,
+          visualContract: world.visualContract,
         });
         await store.appendTranscriptTurn(world.id, runId, {
           role: "assistant",
@@ -964,14 +1008,7 @@ export function createPlayStartTool(
       }
 
       return textResult(
-        [
-          `Interactive world "${world.title}" started.`,
-          `World: ${world.id}`,
-          `Run: ${runId}`,
-          "",
-          sceneText,
-          suggestedActions.length > 0 ? `\nSuggested actions:\n${suggestedActions.map((action) => `- ${action}`).join("\n")}` : "",
-        ].filter(Boolean).join("\n"),
+        sceneText,
         {
           kind: "play_world_started",
           worldId: world.id,
@@ -979,6 +1016,8 @@ export function createPlayStartTool(
           title: world.title,
           mode: world.mode,
           premise: world.premise,
+          worldContract: world.worldContract,
+          visualContract: world.visualContract,
           sceneText,
           suggestedActions,
           ...(seed ? { seedMutation: seed.mutation } : {}),
@@ -1080,14 +1119,7 @@ export function createPlayStepTool(
       const currentState = await store.loadCurrentState(target.worldId, target.runId).catch(() => null);
 
       return textResult(
-        [
-          `Play advanced: ${target.worldId}/${target.runId}`,
-          "",
-          step.sceneText,
-          step.suggestedActions.length > 0
-            ? `\nSuggested actions:\n${step.suggestedActions.map((action) => `- ${action}`).join("\n")}`
-            : "",
-        ].filter(Boolean).join("\n"),
+        step.sceneText,
         {
           kind: "play_turn_advanced",
           worldId: target.worldId,

@@ -123,6 +123,38 @@ describe("play agents", () => {
     expect(system).toContain("Never rename this id");
   });
 
+  it("does not default to numeric meters when the world contract rejects panels or stats", async () => {
+    const agent = new PlayWorldMutatorAgent(ctx);
+    const chat = vi.spyOn(agent as unknown as { chat: PlayWorldMutatorAgent["chat"] }, "chat").mockResolvedValue({
+      content: JSON.stringify({ eventId: "evt-1", turn: 1, actionKind: "look" }),
+    } as never);
+
+    await agent.proposeMutation({
+      turn: 1,
+      input: "我等照片完全显影，不打开任何系统面板。",
+      action: { actionKind: "wait", intent: "等待照片显影并观察细节" },
+      context: [
+        "世界契约（高优先级，先于题材惯例）：",
+        "不要 RPG、战斗、数值或等级。证据可信度只用自然语言表达，不要游戏面板。",
+      ].join("\n"),
+      language: "zh",
+    });
+
+    const messages = chat.mock.calls[0]?.[0] as ReadonlyArray<{ readonly role: string; readonly content: string }>;
+    const system = messages.find((message) => message.role === "system")?.content ?? "";
+    expect(system).toContain("世界契约禁止数值");
+    expect(system).toContain("不要输出 stateSlots");
+    expect(system).toContain("自然语言状态");
+  });
+
+  it("renderer treats player negation and applied time as canonical", async () => {
+    const prompt = buildSceneRendererSystemPrompt("open", "zh");
+    expect(prompt).toContain("玩家原话里的否定动作");
+    expect(prompt).toContain("没有触碰");
+    expect(prompt).toContain("elapsed 和 anchor 是权威时间");
+    expect(prompt).toContain("不得另写");
+  });
+
   it("renders the applied state as prose plus suggested actions", async () => {
     const agent = new PlaySceneRendererAgent(ctx);
     vi.spyOn(agent as unknown as { chat: PlaySceneRendererAgent["chat"] }, "chat").mockResolvedValue({
@@ -236,6 +268,7 @@ describe("scene renderer prompt by mode", () => {
     const prompt = buildSceneRendererSystemPrompt("guided");
     expect(prompt).toContain("呼吸"); // presence is a valid, breathing turn
     expect(prompt).toContain("世界不是死的"); // world runs on its own clock
+    expect(prompt).toContain("时间段"); // applied timeAdvance is rendered as world synchronization
   });
 
   it("renderer treats applied typed state as the source of concrete facts", () => {

@@ -32,6 +32,30 @@ function clamp(text: string, max: number): string {
   return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
 }
 
+export interface PlayImageWorldContext {
+  readonly premise?: string;
+  readonly worldContract?: string;
+  readonly visualContract?: string;
+}
+
+type PlayImageWorldInput = string | PlayImageWorldContext | undefined;
+
+function renderImageWorldContext(input: PlayImageWorldInput): string {
+  if (!input) return "";
+  if (typeof input === "string") {
+    const premise = input.trim();
+    return premise ? `世界设定（决定时代、场景与整体美术风格，必须贴合）：${clamp(premise, 600)}` : "";
+  }
+  const premise = input.premise?.trim();
+  const worldContract = input.worldContract?.trim();
+  const visualContract = input.visualContract?.trim();
+  return [
+    premise ? `世界设定（决定时代、场景与整体美术风格，必须贴合）：${clamp(premise, 600)}` : "",
+    worldContract ? `世界契约（只遵守用户定义的规则，不要自行发明 RPG/数值/等级系统）：${clamp(worldContract, 700)}` : "",
+    visualContract ? `视觉契约（图片必须按这条表达语义）：${clamp(visualContract, 700)}` : "",
+  ].filter(Boolean).join("\n");
+}
+
 /**
  * Build a style-consistent image prompt for a world entity. The world premise
  * anchors era / setting / art style so every illustration in one run looks like
@@ -39,13 +63,13 @@ function clamp(text: string, max: number): string {
  */
 export function buildPlayEntityImagePrompt(
   entity: { readonly type: string; readonly label: string; readonly summary?: string },
-  worldPremise?: string,
+  worldPremise?: PlayImageWorldInput,
 ): string {
-  const premise = worldPremise?.trim();
+  const worldContext = renderImageWorldContext(worldPremise);
   const subject = SHOT_BY_TYPE[entity.type] ?? "为这个对象画一张贴合世界设定的概念图";
   const summary = entity.summary?.trim();
   return [
-    premise ? `世界设定（决定时代、场景与整体美术风格，必须贴合）：${clamp(premise, 600)}` : "",
+    worldContext,
     subject,
     `对象：${entity.label}`,
     summary ? `细节：${clamp(summary, 400)}` : "",
@@ -54,10 +78,10 @@ export function buildPlayEntityImagePrompt(
 }
 
 /** Build a wide illustration prompt for the current moment from its scene prose. */
-export function buildPlaySceneImagePrompt(sceneText: string, worldPremise?: string): string {
-  const premise = worldPremise?.trim();
+export function buildPlaySceneImagePrompt(sceneText: string, worldPremise?: PlayImageWorldInput): string {
+  const worldContext = renderImageWorldContext(worldPremise);
   return [
-    premise ? `世界设定（决定时代、场景与整体美术风格，必须贴合）：${clamp(premise, 600)}` : "",
+    worldContext,
     "为下面这一刻画一张电影感的横构图插画，捕捉当下的动作、氛围与情绪：",
     clamp(sceneText, 900),
     "要求：写实或半写实，重氛围与光影，无任何文字、水印或多格拼贴。",

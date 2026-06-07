@@ -75,6 +75,26 @@ describe("play models", () => {
     expect(slot.value).toMatchObject({ current: 35 });
   });
 
+  it("accepts semantic time advancement without fixed ticks or genre-specific units", () => {
+    const mutation = PlayMutationSchema.parse({
+      eventId: "evt-2",
+      turn: 2,
+      actionKind: "wait",
+      summary: "玩家屏息等待。",
+      time: {
+        duration: "几息",
+        worldTime: "仍在库房门外那次停顿里",
+        reason: "玩家没有离开库房，只是听门外动静。",
+        worldChanges: "门外的人也停住脚步，铜匣热意更明显。",
+      },
+    });
+
+    expect(mutation.timeAdvance?.elapsed).toBe("几息");
+    expect(mutation.timeAdvance?.anchor).toBe("仍在库房门外那次停顿里");
+    expect(mutation.timeAdvance?.rationale).toContain("库房");
+    expect(mutation.timeAdvance?.synchronized).toEqual(["门外的人也停住脚步，铜匣热意更明显。"]);
+  });
+
   it("models clue and evidence lifecycle explicitly", () => {
     expect(PlayEvidenceStatusSchema.options).toEqual([
       "unknown",

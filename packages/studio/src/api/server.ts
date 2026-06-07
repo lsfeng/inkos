@@ -765,6 +765,8 @@ async function executeConfirmedProductionAction(args: {
     params = {
       title,
       ...(payload?.premise ? { premise: payload.premise } : {}),
+      ...(payload?.worldContract ? { worldContract: payload.worldContract } : {}),
+      ...(payload?.visualContract ? { visualContract: payload.visualContract } : {}),
       ...(payload?.mode ? { mode: payload.mode } : {}),
       ...(initialScene ? { initialScene } : {}),
       ...(payload?.suggestedActions ? { suggestedActions: payload.suggestedActions } : {}),
@@ -2963,7 +2965,13 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
       store.loadWorld(worldId).catch(() => null),
       store.loadCurrentState(worldId, runId).catch(() => null),
     ]);
-    const premise = world?.premise;
+    const worldContext = world
+      ? {
+        premise: world.premise,
+        worldContract: world.worldContract,
+        visualContract: world.visualContract,
+      }
+      : undefined;
 
     let key: string;
     let prompt: string;
@@ -2976,7 +2984,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
       );
       if (!sceneText) return c.json({ error: "no current scene to illustrate" }, 400);
       key = body.sceneKey?.trim() || `scene-turn-${(currentState as { turn?: number } | null)?.turn ?? 0}`;
-      prompt = buildPlaySceneImagePrompt(sceneText, premise);
+      prompt = buildPlaySceneImagePrompt(sceneText, worldContext);
     } else {
       const entityId = body.entityId?.trim();
       if (!entityId) return c.json({ error: "entityId is required for an entity image" }, 400);
@@ -2988,7 +2996,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string) {
         | undefined;
       if (!entity) return c.json({ error: `entity not found: ${entityId}` }, 404);
       key = entity.id;
-      prompt = buildPlayEntityImagePrompt(entity, premise);
+      prompt = buildPlayEntityImagePrompt(entity, worldContext);
     }
 
     try {

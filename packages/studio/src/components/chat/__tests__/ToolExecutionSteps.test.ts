@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { ToolExecution } from "../../../store/chat/types";
-import { getGeneratedArtifactDetails, getPlayToolDetails, getProposedActionDetails, groupToolExecutionsChronologically } from "../ToolExecutionSteps";
+import { getGeneratedArtifactDetails, getPlayToolDetails, getProposedActionContractRows, getProposedActionDetails, groupToolExecutionsChronologically } from "../ToolExecutionSteps";
 
 const makeExec = (overrides: Partial<ToolExecution> & { id: string; tool: string }): ToolExecution => ({
   label: "test",
@@ -257,6 +257,41 @@ describe("groupChronologically", () => {
         instruction: "打开对应工具，等待用户补充材料。",
       });
     }
+  });
+
+  it("extracts Play world and visual contracts for confirmation cards", () => {
+    const exec = makeExec({
+      id: "proposal-play-contract",
+      tool: "propose_action",
+      label: "确认动作",
+      details: {
+        kind: "proposed_action",
+        action: "play_start",
+        targetSessionKind: "play",
+        title: "玄照山外门",
+        instruction: "启动一个修仙开放世界。",
+        actionPayload: {
+          playStart: {
+            title: "玄照山外门",
+            worldContract: "时间是世界同步轴；角色会自主修炼和布局；不要固定 tick 或 RPG 面板。",
+            visualContract: "法器珍惜程度通过材质、光泽和旁人反应体现，不要绿蓝紫橙边框。",
+          },
+        },
+      },
+    });
+
+    const details = getProposedActionDetails(exec);
+    expect(details).not.toBeNull();
+    expect(getProposedActionContractRows(details!)).toEqual([
+      {
+        label: "世界契约",
+        value: expect.stringContaining("时间是世界同步轴"),
+      },
+      {
+        label: "视觉契约",
+        value: expect.stringContaining("不要绿蓝紫橙边框"),
+      },
+    ]);
   });
 
   it("ignores invalid proposed target routes", () => {

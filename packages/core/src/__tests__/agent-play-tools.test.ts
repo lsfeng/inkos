@@ -68,7 +68,13 @@ describe("agent play tools", () => {
       runId: "main",
       title: "雨夜茶馆",
       sceneText: "雨一直下，柜台上的账本被敲了三下。",
+      suggestedActions: ["查看账本", "问来人是谁"],
     });
+    const resultText = result.content[0]?.type === "text" ? result.content[0].text : "";
+    expect(resultText).toBe("雨一直下，柜台上的账本被敲了三下。");
+    expect(resultText).not.toContain("Interactive world");
+    expect(resultText).not.toContain("Suggested actions");
+    expect(resultText).not.toContain("查看账本");
 
     const store = new PlayStore(root);
     await expect(store.loadWorld(sessionId)).resolves.toMatchObject({
@@ -80,6 +86,63 @@ describe("agent play tools", () => {
     ]);
     await expect(store.readProjection(sessionId, "main", "projections/scene.md"))
       .resolves.toContain("雨一直下");
+  });
+
+  it("persists confirmed natural-language contracts from play_start", async () => {
+    const sessionId = "1700000000000-contract";
+    const tool = createPlayStartTool(null, root, sessionId);
+    const result = await tool.execute("tc-start-contract", {
+      title: "雾港修行录",
+      premise: "玩家是港口小宗门外门弟子，今晚要护送一只来历不明的铜匣。",
+      mode: "open",
+      worldContract: "装备只按用户定义的凡器/灵器/秘宝表达珍惜程度，不引入数值、战斗公式或游戏面板。关键角色会按自己的目标行动。",
+      visualContract: "珍惜程度通过材质、光泽、背景气氛和旁人反应体现，不要绿蓝紫橙边框。",
+      initialScene: "雨雾压着港口，铜匣在你怀里轻轻发热。",
+      suggestedActions: ["查看铜匣裂纹", "观察码头上的同门"],
+    } as any);
+
+    expect(result.details).toMatchObject({
+      kind: "play_world_started",
+      worldContract: expect.stringContaining("不引入数值"),
+      visualContract: expect.stringContaining("不要绿蓝紫橙边框"),
+    });
+
+    const store = new PlayStore(root);
+    await expect(store.loadWorld(sessionId)).resolves.toMatchObject({
+      worldContract: expect.stringContaining("关键角色会按自己的目标行动"),
+      visualContract: expect.stringContaining("材质、光泽"),
+    });
+  });
+
+  it("uses confirmed action-payload contracts over model tool params", async () => {
+    const sessionId = "1700000000000-contract-payload";
+    const tool = createPlayStartTool(null, root, sessionId, undefined, {
+      actionPayload: {
+        playStart: {
+          title: "确认卡世界",
+          premise: "确认卡里的世界设定。",
+          worldContract: "确认卡里的世界契约优先：NPC 会离场、误导和主动追问。",
+          visualContract: "确认卡里的视觉契约优先：线索可信度通过清晰度和环境危险性体现。",
+          initialScene: "确认卡里的开场。",
+        },
+      } as any,
+    });
+
+    await tool.execute("tc-start-contract-payload", {
+      title: "模型临时标题",
+      premise: "模型临时设定。",
+      worldContract: "模型临时契约。",
+      visualContract: "模型临时视觉契约。",
+      initialScene: "模型临时开场。",
+    } as any);
+
+    const store = new PlayStore(root);
+    await expect(store.loadWorld(sessionId)).resolves.toMatchObject({
+      title: "确认卡世界",
+      premise: "确认卡里的世界设定。",
+      worldContract: expect.stringContaining("NPC 会离场"),
+      visualContract: expect.stringContaining("线索可信度"),
+    });
   });
 
   it("normalizes object-shaped suggested actions at the tool boundary", async () => {

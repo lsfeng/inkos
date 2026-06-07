@@ -40,6 +40,8 @@ export const ShortRunActionPayloadSchema = z.object({
 export const PlayStartActionPayloadSchema = z.object({
   title: z.string().min(1).optional(),
   premise: z.string().min(1).optional(),
+  worldContract: z.string().min(1).optional(),
+  visualContract: z.string().min(1).optional(),
   mode: PlayModeSchema.optional(),
   initialScene: z.string().min(1).optional(),
   suggestedActions: z.array(z.string().min(1)).min(1).max(4).optional(),

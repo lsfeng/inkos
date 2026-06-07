@@ -110,6 +110,15 @@ export const PlayStateSlotSchema = z.object({
 export type PlayStateSlotInput = z.input<typeof PlayStateSlotSchema>;
 export type PlayStateSlot = z.infer<typeof PlayStateSlotSchema>;
 
+export const PlayTimeAdvanceSchema = z.object({
+  elapsed: coercedString.default(""),
+  anchor: coercedString.default(""),
+  rationale: coercedString.default(""),
+  synchronized: lenientArray(coercedString).default([]),
+});
+export type PlayTimeAdvanceInput = z.input<typeof PlayTimeAdvanceSchema>;
+export type PlayTimeAdvance = z.infer<typeof PlayTimeAdvanceSchema>;
+
 export const PlayEvidenceStatusSchema = z.enum([
   "unknown",
   "hinted",
@@ -137,6 +146,7 @@ export const PlayEventSchema = z.object({
   actionKind: PlayActionKindSchema,
   rawInput: z.string().min(1),
   outcomeSummary: z.string().default(""),
+  timeAdvance: z.preprocess(normalizeTimeAdvance, PlayTimeAdvanceSchema.optional()).catch(undefined),
   createdAt: z.string().min(1),
 });
 export type PlayEventInput = z.input<typeof PlayEventSchema>;
@@ -256,6 +266,8 @@ function normalizePlayMutation(value: unknown): unknown {
   if (Array.isArray(v.stateSlots)) v.stateSlots = { upsert: v.stateSlots };
   if (Array.isArray(v.evidence)) v.evidence = { transitions: v.evidence };
   if (typeof v.notes === "string") v.notes = v.notes.trim() ? [v.notes] : [];
+  if (v.timeAdvance === undefined && v.time !== undefined) v.timeAdvance = v.time;
+  v.timeAdvance = normalizeTimeAdvance(v.timeAdvance);
   const turn = typeof v.turn === "number" && Number.isInteger(v.turn) && v.turn >= 0
     ? v.turn
     : typeof v.turn === "string" && /^\d+$/.test(v.turn.trim()) && Number(v.turn.trim()) >= 0
@@ -273,6 +285,32 @@ function normalizePlayMutation(value: unknown): unknown {
   return v;
 }
 
+function normalizeTimeAdvance(value: unknown): unknown {
+  if (value === null || value === undefined || value === "") return undefined;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return { elapsed: String(value) };
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const normalized: Record<string, unknown> = { ...raw };
+  if (normalized.elapsed === undefined) {
+    normalized.elapsed = raw.duration ?? raw.delta ?? raw.timePassed ?? raw.passed ?? raw.label;
+  }
+  if (normalized.anchor === undefined) {
+    normalized.anchor = raw.now ?? raw.current ?? raw.currentTime ?? raw.worldTime ?? raw.phase ?? raw.clock ?? raw.at;
+  }
+  if (normalized.rationale === undefined) {
+    normalized.rationale = raw.reason ?? raw.why ?? raw.because;
+  }
+  if (normalized.synchronized === undefined) {
+    normalized.synchronized = raw.worldChanges ?? raw.concurrent ?? raw.simultaneous ?? raw.offscreen;
+  }
+  if (typeof normalized.synchronized === "string") {
+    normalized.synchronized = normalized.synchronized.trim() ? [normalized.synchronized] : [];
+  }
+  return normalized;
+}
+
 const PlayEdgeExpireSchema = z.object({
   edgeId: z.string().min(1),
   validUntilEventId: z.string().min(1),
@@ -286,6 +324,7 @@ export const PlayMutationSchema = z.preprocess(normalizePlayMutation, z.object({
   turn: z.coerce.number().int().min(0).catch(0),
   actionKind: PlayActionKindSchema.catch("do"),
   summary: coercedString.catch(""),
+  timeAdvance: z.preprocess(normalizeTimeAdvance, PlayTimeAdvanceSchema.optional()).catch(undefined),
   entities: z.object({ upsert: lenientArray(PlayEntitySchema) }).catch({ upsert: [] }),
   edges: z.object({
     upsert: lenientArray(PlayEdgeSchema),

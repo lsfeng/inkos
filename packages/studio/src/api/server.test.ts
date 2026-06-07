@@ -2640,6 +2640,8 @@ describe("createStudioServer daemon lifecycle", () => {
           playStart: {
             title: "旧档案馆之夜",
             premise: "我是城郊旧档案馆夜班保安，暴雨夜收到写着我名字的借阅卡。",
+            worldContract: "时间按行动语义推进；嫌疑人和保安队会在同一段时间里自主移动和隐瞒线索。",
+            visualContract: "证据可信度通过清晰度、潮湿程度和环境危险性体现，不要游戏 UI。",
             mode: "open",
             initialScene: "暴雨敲着铁皮门，封存档案箱压在门口。",
             suggestedActions: ["把箱子拖进值班室", "查看借阅卡背面"],
@@ -2651,7 +2653,7 @@ describe("createStudioServer daemon lifecycle", () => {
     expect(response.status).toBe(200);
     expect(runAgentSessionMock).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toMatchObject({
-      response: expect.stringContaining("Interactive world"),
+      response: "暴雨敲着铁皮门，封存档案箱压在门口。",
       session: { sessionId: "play-session-1", sessionKind: "play" },
     });
     expect(appendManualSessionMessagesMock).toHaveBeenCalledWith(
@@ -2668,6 +2670,8 @@ describe("createStudioServer daemon lifecycle", () => {
               status: "completed",
               details: expect.objectContaining({
                 kind: "play_world_started",
+                worldContract: expect.stringContaining("自主移动"),
+                visualContract: expect.stringContaining("不要游戏 UI"),
                 suggestedActions: expect.arrayContaining(["把箱子拖进值班室"]),
               }),
             }),
@@ -2676,7 +2680,12 @@ describe("createStudioServer daemon lifecycle", () => {
       }),
     );
     const world = JSON.parse(await readFile(join(root, "worlds", "play-session-1", "world.json"), "utf-8")) as { title: string; mode: string };
-    expect(world).toMatchObject({ title: "旧档案馆之夜", mode: "open" });
+    expect(world).toMatchObject({
+      title: "旧档案馆之夜",
+      mode: "open",
+      worldContract: expect.stringContaining("行动语义推进"),
+      visualContract: expect.stringContaining("证据可信度"),
+    });
   });
 
   it("falls back from a truncated confirmed play-start scene to the complete user instruction", async () => {

@@ -56,6 +56,7 @@ export function applyPlayMutation(input: ApplyPlayMutationInput): ApplyPlayMutat
     actionKind: mutation.actionKind,
     rawInput: input.rawInput,
     outcomeSummary: mutation.summary || mutation.blockedReason,
+    timeAdvance: mutation.timeAdvance,
     createdAt: input.createdAt ?? new Date().toISOString(),
   });
 
@@ -193,9 +194,11 @@ function applyGraphChanges(db: PlayReducerDB, mutation: ReturnType<typeof PlayMu
   // to wipe an entire turn's mutations and leave the relationship panel empty).
   const upsertedEntityIds = new Set(mutation.entities.upsert.map((e) => e.id));
   const endpointExists = (id: string): boolean => upsertedEntityIds.has(id) || db.getEntity(id) !== null;
+  const findEntity = (id: string): PlayEntity | PlayEntityInput | null =>
+    mutation.entities.upsert.find((entity) => entity.id === id) ?? db.getEntity(id);
   for (const edge of mutation.edges.upsert) {
     if (endpointExists(edge.fromId) && endpointExists(edge.toId)) {
-      db.upsertEdge(edge);
+      db.upsertEdge(normalizeHoldingEdge(edge, findEntity(edge.toId)));
     }
   }
   for (const slot of mutation.stateSlots.upsert) {
@@ -215,6 +218,27 @@ function applyGraphChanges(db: PlayReducerDB, mutation: ReturnType<typeof PlayMu
       updatedEventId: mutation.eventId,
     });
   }
+}
+
+function normalizeHoldingEdge(edge: PlayEdgeInput, target: PlayEntity | PlayEntityInput | null): PlayEdgeInput {
+  if (!isRecord(edge.value) || edge.value.role !== "holding") return edge;
+  if (isPhysicalHoldingTarget(target, edge.value)) return edge;
+  return {
+    ...edge,
+    value: {
+      ...edge.value,
+      role: "observed",
+    },
+  };
+}
+
+function isPhysicalHoldingTarget(target: PlayEntity | PlayEntityInput | null, value: Record<string, unknown>): boolean {
+  if (!target) return false;
+  if (target.type === "item") return true;
+  if (value.physical === true || value.portable === true) {
+    return target.type === "evidence" || target.type === "clue" || target.type === "claim" || target.type === "proof_chain";
+  }
+  return false;
 }
 
 function normalizeStateSlot(slot: PlayStateSlotInput): PlayStateSlotInput {

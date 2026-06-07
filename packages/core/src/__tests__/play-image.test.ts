@@ -44,6 +44,22 @@ describe("play image prompts", () => {
     expect(prompt).toContain("便利店门口");
   });
 
+  it("includes user-defined world and visual contracts without assuming RPG tiers", () => {
+    const prompt = buildPlayEntityImagePrompt(
+      { type: "item", label: "旧瓷杯", summary: "合租屋餐桌上总被推到玩家座位旁边。" },
+      {
+        premise: "雨夜合租屋关系本。",
+        worldContract: "物件按心动层级表达关系变化，不使用装备、数值或 RPG 稀有度。",
+        visualContract: "心动层级通过摆放距离、杯沿磨损、光线和人物反应体现，不要绿蓝紫橙边框。",
+      } as any,
+    );
+
+    expect(prompt).toContain("世界契约");
+    expect(prompt).toContain("心动层级");
+    expect(prompt).toContain("视觉契约");
+    expect(prompt).toContain("不要绿蓝紫橙边框");
+  });
+
   it("clamps overly long premises/summaries so prompts stay bounded", () => {
     const long = "设".repeat(2000);
     const prompt = buildPlayEntityImagePrompt({ type: "actor", label: "X", summary: long }, long);

@@ -35,6 +35,13 @@ interface PlayEvent {
   readonly id: string;
   readonly turn: number;
   readonly outcomeSummary?: string;
+  readonly timeAdvance?: PlayTimeAdvance | null;
+}
+interface PlayTimeAdvance {
+  readonly elapsed?: string;
+  readonly anchor?: string;
+  readonly rationale?: string;
+  readonly synchronized?: ReadonlyArray<string>;
 }
 interface PlayGraph {
   readonly entities: ReadonlyArray<PlayEntity>;
@@ -49,7 +56,7 @@ interface PlayImageSettings {
 }
 interface PlayRunResponse {
   readonly title?: string;
-  readonly currentState?: { turn?: number; mode?: string; premise?: string } | null;
+  readonly currentState?: { turn?: number; mode?: string; premise?: string; timeAdvance?: PlayTimeAdvance | null } | null;
   readonly graph?: PlayGraph;
   readonly imageSettings?: PlayImageSettings;
   readonly sceneImageUrl?: string;
@@ -80,8 +87,10 @@ function formatValue(value: unknown): string {
   }
 }
 
-function isHoldingEdge(edge: PlayEdge): boolean {
-  return edge.value?.role === "holding";
+function isHoldingEdge(edge: PlayEdge, entity: PlayEntity): boolean {
+  if (edge.value?.role !== "holding") return false;
+  if (entity.type === "item") return true;
+  return edge.value?.physical === true || edge.value?.portable === true;
 }
 
 function isRelationEdge(edge: PlayEdge): boolean {
@@ -93,7 +102,7 @@ function isHeldEntity(entity: PlayEntity, currentEdges: ReadonlyArray<PlayEdge>)
   return currentEdges.some((edge) =>
     edge.fromId === "actor_player"
     && edge.toId === entity.id
-    && isHoldingEdge(edge)
+    && isHoldingEdge(edge, entity)
   );
 }
 
@@ -117,11 +126,39 @@ interface HudView {
   readonly turn: number | null;
   readonly mode: string | null;
   readonly premise: string;
+  readonly time: HudRow | null;
   readonly facing: ReadonlyArray<HudRow>;
   // Actor subset of `facing` (excludes locations) — only actors auto-illustrate.
   readonly actors: ReadonlyArray<HudRow>;
   readonly holdings: ReadonlyArray<HudRow>;
   readonly meters: ReadonlyArray<HudRow>;
+}
+
+type AutoImageRequest =
+  | { readonly key: string; readonly body: { readonly target: "entity"; readonly entityId: string } }
+  | { readonly key: string; readonly body: { readonly target: "scene" } };
+
+export function buildAutoImageRequests(
+  view: HudView | null,
+  settings: PlayImageSettings,
+  sceneImageUrl?: string,
+): ReadonlyArray<AutoImageRequest> {
+  if (!view) return [];
+  const requests: AutoImageRequest[] = [];
+  if (settings.actors) {
+    view.actors.forEach((row) => {
+      if (!row.imageUrl) requests.push({ key: row.id, body: { target: "entity", entityId: row.id } });
+    });
+  }
+  if (settings.inventory) {
+    view.holdings.forEach((row) => {
+      if (!row.imageUrl) requests.push({ key: row.id, body: { target: "entity", entityId: row.id } });
+    });
+  }
+  if (settings.moments && view.turn != null && !sceneImageUrl) {
+    requests.push({ key: `scene-turn-${view.turn}`, body: { target: "scene" } });
+  }
+  return requests;
 }
 
 export function buildView(run: PlayRunResponse | null): HudView | null {
@@ -196,12 +233,29 @@ export function buildView(run: PlayRunResponse | null): HudView | null {
       details: cause ? [{ label: "因为", text: cause }] : [],
     };
   });
+  const latestTime = run.currentState?.timeAdvance
+    ?? [...events].reverse().find((event) => event.timeAdvance)?.timeAdvance
+    ?? null;
+  const time: HudRow | null = latestTime && (latestTime.elapsed || latestTime.anchor || latestTime.rationale || (latestTime.synchronized?.length ?? 0) > 0)
+    ? {
+        id: "world-time",
+        glyph: "⏳",
+        label: "世界时间",
+        value: latestTime.anchor || latestTime.elapsed || "",
+        note: latestTime.rationale || null,
+        details: [
+          ...(latestTime.elapsed && latestTime.anchor ? [{ label: "经过", text: latestTime.elapsed }] : []),
+          ...(latestTime.synchronized ?? []).map((text) => ({ label: "同步", text })),
+        ],
+      }
+    : null;
 
   const turnFromEvents = events.reduce((max, e) => Math.max(max, e.turn), 0);
   return {
     turn: run.currentState?.turn ?? (events.length > 0 ? turnFromEvents : null),
     mode: run.currentState?.mode ?? null,
     premise: run.currentState?.premise ?? "",
+    time,
     facing: [...locations, ...actors, ...surroundings],
     actors,
     holdings,
@@ -300,16 +354,14 @@ export function PlayHud(props: {
 
   const view = useMemo(() => buildView(run), [run]);
 
-  // Auto-illustrate new actors / inventory when the toggle is on and an image
+  // Auto-illustrate new actors / inventory / current moment when the toggle is on and an image
   // API is configured. Decoupled + deduped (inFlight): never blocks a turn,
   // images appear on the next refresh.
   useEffect(() => {
     if (!coverReady || !view) return;
-    const targets: string[] = [];
-    if (settings.actors) view.actors.forEach((r) => { if (!r.imageUrl) targets.push(r.id); });
-    if (settings.inventory) view.holdings.forEach((r) => { if (!r.imageUrl) targets.push(r.id); });
-    targets.forEach((id) => void generate(id, { target: "entity", entityId: id }));
-  }, [coverReady, settings.actors, settings.inventory, view, generate]);
+    buildAutoImageRequests(view, settings, run?.sceneImageUrl)
+      .forEach((request) => void generate(request.key, request.body));
+  }, [coverReady, settings, view, run?.sceneImageUrl, generate]);
 
   const title = props.sessionTitle?.trim() || run?.title?.trim() || (isZh ? "互动世界" : "Play World");
 
@@ -361,6 +413,15 @@ export function PlayHud(props: {
                 className="w-full rounded-lg border border-border/30 object-cover"
               />
             )}
+            {view.time ? (
+              <Zone
+                title={isZh ? "世界时间" : "World time"}
+                empty={false}
+                emptyText=""
+              >
+                <Row row={view.time} isZh={isZh} />
+              </Zone>
+            ) : null}
             <Zone
               title={isZh ? "我面对的" : "Around me"}
               empty={view.facing.length === 0}
