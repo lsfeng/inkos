@@ -4,11 +4,16 @@ import { loadConfig, buildPipelineConfig, findProjectRoot, getLegacyMigrationHin
 import {
   formatAutoWriteAlreadyComplete,
   formatAutoWriteStart,
+  formatNotifyBatchWriteBody,
+  formatNotifyCommandTitle,
+  formatNotifyFailureBody,
   formatWriteNextComplete,
   formatWriteNextProgress,
   formatWriteNextResultLines,
   resolveCliLanguage,
+  type CliLanguage,
 } from "../localization.js";
+import { sendCommandNotification } from "../notify-helper.js";
 
 export const autoCommand = new Command("auto")
   .description("Auto-write chapters until the book reaches a target chapter number: auto [book-id] <target-chapter>")
@@ -16,7 +21,10 @@ export const autoCommand = new Command("auto")
   .option("--words <n>", "Words per chapter (overrides book config)")
   .option("--json", "Output JSON")
   .option("-q, --quiet", "Suppress console output")
+  .option("--notify", "Send a notification to configured notify channels when the command finishes")
   .action(async (args: ReadonlyArray<string>, opts) => {
+    let notifyLanguage: CliLanguage = "zh";
+    let notifyBookName: string | undefined;
     try {
       const root = findProjectRoot();
 
@@ -40,6 +48,8 @@ export const autoCommand = new Command("auto")
       const state = new StateManager(root);
       const book = await state.loadBookConfig(bookId);
       const language = resolveCliLanguage(book.language);
+      notifyLanguage = language;
+      notifyBookName = book.title ?? bookId;
       const migrationHint = await getLegacyMigrationHint(root, bookId);
       if (migrationHint && !opts.json) {
         log(`[migration] ${migrationHint}`);
@@ -109,7 +119,30 @@ export const autoCommand = new Command("auto")
       } else {
         log(formatWriteNextComplete(language));
       }
+
+      // The pipeline itself already sends one notification per completed
+      // chapter whenever notify channels are configured (runner.ts, end of
+      // writeNextChapter). A single-chapter run would therefore duplicate that
+      // exact notification — only send a command-level batch summary when this
+      // run wrote more than one chapter.
+      if (opts.notify && results.length > 1) {
+        await sendCommandNotification({
+          title: formatNotifyCommandTitle(language, "auto", notifyBookName, true),
+          body: formatNotifyBatchWriteBody(language, results.map((r) => ({
+            chapterNumber: r.chapterNumber,
+            title: r.title,
+            wordCount: r.wordCount,
+            auditPassed: r.auditResult.passed,
+          }))),
+        }, config);
+      }
     } catch (e) {
+      if (opts.notify) {
+        await sendCommandNotification({
+          title: formatNotifyCommandTitle(notifyLanguage, "auto", notifyBookName, false),
+          body: formatNotifyFailureBody(notifyLanguage, e),
+        });
+      }
       if (opts.json) {
         log(JSON.stringify({ error: String(e) }));
       } else {

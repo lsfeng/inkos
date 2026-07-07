@@ -163,6 +163,105 @@ export function formatAutoWriteAlreadyComplete(
   });
 }
 
+export type NotifyCommandAction = "write-next" | "write-rewrite" | "revise" | "audit" | "auto";
+
+const NOTIFY_ACTION_LABELS: Record<NotifyCommandAction, { zh: string; en: string }> = {
+  "write-next": { zh: "写作", en: "Write" },
+  "write-rewrite": { zh: "重写", en: "Rewrite" },
+  revise: { zh: "修订", en: "Revise" },
+  audit: { zh: "审计", en: "Audit" },
+  auto: { zh: "自动连写", en: "Auto-write" },
+};
+
+export function formatNotifyCommandTitle(
+  language: CliLanguage,
+  action: NotifyCommandAction,
+  bookName: string | undefined,
+  succeeded: boolean,
+): string {
+  const label = localize(language, NOTIFY_ACTION_LABELS[action]);
+  const book = bookName === undefined
+    ? ""
+    : localize(language, { zh: `《${bookName}》`, en: `: ${bookName}` });
+  return succeeded
+    ? localize(language, { zh: `✅ ${label}完成${book}`, en: `✅ ${label} complete${book}` })
+    : localize(language, { zh: `❌ ${label}失败${book}`, en: `❌ ${label} failed${book}` });
+}
+
+export function formatNotifyBatchWriteBody(
+  language: CliLanguage,
+  chapters: ReadonlyArray<{
+    readonly chapterNumber: number;
+    readonly title: string;
+    readonly wordCount: number;
+    readonly auditPassed: boolean;
+  }>,
+): string {
+  const first = chapters[0]!;
+  const last = chapters[chapters.length - 1]!;
+  const lines = [
+    localize(language, {
+      zh: `本次完成 ${chapters.length} 章（第${first.chapterNumber}章到第${last.chapterNumber}章）`,
+      en: `${chapters.length} chapter(s) written (chapter ${first.chapterNumber} to ${last.chapterNumber})`,
+    }),
+    ...chapters.map((ch) => {
+      const lengthLabel = formatLengthCount(ch.wordCount, resolveLengthCountingMode(language));
+      return localize(language, {
+        zh: `第${ch.chapterNumber}章 ${ch.title} | ${lengthLabel} | ${ch.auditPassed ? "审计通过" : "需复核"}`,
+        en: `Chapter ${ch.chapterNumber} ${ch.title} | ${lengthLabel} | ${ch.auditPassed ? "audit passed" : "needs review"}`,
+      });
+    }),
+  ];
+  return lines.join("\n");
+}
+
+export function formatNotifyAuditBody(
+  language: CliLanguage,
+  result: {
+    readonly chapterNumber: number;
+    readonly passed: boolean;
+    readonly issueCount: number;
+    readonly summary: string;
+  },
+): string {
+  const head = localize(language, {
+    zh: `第${result.chapterNumber}章审计${result.passed ? "通过" : "未通过"}（${result.issueCount} 个问题）`,
+    en: `Chapter ${result.chapterNumber} audit ${result.passed ? "passed" : "failed"} (${result.issueCount} issue(s))`,
+  });
+  return result.summary ? `${head}\n${result.summary}` : head;
+}
+
+export function formatNotifyReviseBody(
+  language: CliLanguage,
+  result: {
+    readonly chapterNumber: number;
+    readonly applied: boolean;
+    readonly wordCount: number;
+    readonly fixedCount: number;
+    readonly skippedReason?: string;
+  },
+): string {
+  if (!result.applied) {
+    return localize(language, {
+      zh: `第${result.chapterNumber}章保留原稿${result.skippedReason ? `：${result.skippedReason}` : ""}`,
+      en: `Chapter ${result.chapterNumber} kept original draft${result.skippedReason ? `: ${result.skippedReason}` : ""}`,
+    });
+  }
+  const lengthLabel = formatLengthCount(result.wordCount, resolveLengthCountingMode(language));
+  return localize(language, {
+    zh: `第${result.chapterNumber}章已修订 | ${lengthLabel} | 修复 ${result.fixedCount} 个问题`,
+    en: `Chapter ${result.chapterNumber} revised | ${lengthLabel} | ${result.fixedCount} issue(s) fixed`,
+  });
+}
+
+export function formatNotifyFailureBody(language: CliLanguage, error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return localize(language, {
+    zh: `错误：${detail}`,
+    en: `Error: ${detail}`,
+  });
+}
+
 export function formatImportChaptersDiscovery(
   language: CliLanguage,
   chapterCount: number,

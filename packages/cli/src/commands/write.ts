@@ -4,7 +4,17 @@ import { readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { loadConfig, buildPipelineConfig, findProjectRoot, getLegacyMigrationHint, resolveContext, resolveBookId, log, logError } from "../utils.js";
-import { formatWriteNextComplete, formatWriteNextProgress, formatWriteNextResultLines, resolveCliLanguage } from "../localization.js";
+import {
+  formatNotifyBatchWriteBody,
+  formatNotifyCommandTitle,
+  formatNotifyFailureBody,
+  formatWriteNextComplete,
+  formatWriteNextProgress,
+  formatWriteNextResultLines,
+  resolveCliLanguage,
+  type CliLanguage,
+} from "../localization.js";
+import { sendCommandNotification } from "../notify-helper.js";
 
 export const writeCommand = new Command("write")
   .description("Write chapters");
@@ -19,7 +29,10 @@ writeCommand
   .option("--context-file <path>", "Read guidance from file")
   .option("--json", "Output JSON")
   .option("-q, --quiet", "Suppress console output")
+  .option("--notify", "Send a notification to configured notify channels when the command finishes")
   .action(async (bookIdArg: string | undefined, opts) => {
+    let notifyLanguage: CliLanguage = "zh";
+    let notifyBookName: string | undefined;
     try {
       const root = findProjectRoot();
       const bookId = await resolveBookId(bookIdArg, root);
@@ -27,6 +40,8 @@ writeCommand
       const state = new StateManager(root);
       const book = await state.loadBookConfig(bookId);
       const language = resolveCliLanguage(book.language);
+      notifyLanguage = language;
+      notifyBookName = book.title ?? bookId;
       const migrationHint = await getLegacyMigrationHint(root, bookId);
       if (migrationHint && !opts.json) {
         log(`[migration] ${migrationHint}`);
@@ -79,7 +94,30 @@ writeCommand
       } else {
         log(formatWriteNextComplete(language));
       }
+
+      // The pipeline itself already sends one notification per completed
+      // chapter whenever notify channels are configured (runner.ts, end of
+      // writeNextChapter). A single-chapter run would therefore duplicate that
+      // exact notification — only send a command-level batch summary when this
+      // run wrote more than one chapter.
+      if (opts.notify && results.length > 1) {
+        await sendCommandNotification({
+          title: formatNotifyCommandTitle(language, "write-next", notifyBookName, true),
+          body: formatNotifyBatchWriteBody(language, results.map((r) => ({
+            chapterNumber: r.chapterNumber,
+            title: r.title,
+            wordCount: r.wordCount,
+            auditPassed: r.auditResult.passed,
+          }))),
+        }, config);
+      }
     } catch (e) {
+      if (opts.notify) {
+        await sendCommandNotification({
+          title: formatNotifyCommandTitle(notifyLanguage, "write-next", notifyBookName, false),
+          body: formatNotifyFailureBody(notifyLanguage, e),
+        });
+      }
       if (opts.json) {
         log(JSON.stringify({ error: String(e) }));
       } else {
@@ -97,7 +135,10 @@ writeCommand
   .option("--words <n>", "Words per chapter (overrides book config)")
   .option("--brief <text>", "One-off creative guidance for this rewrite only")
   .option("--json", "Output JSON")
+  .option("--notify", "Send a notification to configured notify channels when the command finishes")
   .action(async (args: ReadonlyArray<string>, opts) => {
+    let notifyLanguage: CliLanguage = "zh";
+    let notifyBookName: string | undefined;
     try {
       const root = findProjectRoot();
 
@@ -129,6 +170,8 @@ writeCommand
 
       const state = new StateManager(root);
       const book = await state.loadBookConfig(bookId);
+      notifyLanguage = resolveCliLanguage(book.language);
+      notifyBookName = book.title ?? bookId;
       const bookDir = state.bookDir(bookId);
       const chaptersDir = join(bookDir, "chapters");
       const restoreFrom = chapter - 1;
@@ -205,7 +248,18 @@ writeCommand
           log(line);
         }
       }
+
+      // Success notification intentionally skipped: the pipeline already sent
+      // the per-chapter notification for this exact chapter (runner.ts, end of
+      // writeNextChapter) — a command-level one would be a duplicate. --notify
+      // only adds the failure notification for this command.
     } catch (e) {
+      if (opts.notify) {
+        await sendCommandNotification({
+          title: formatNotifyCommandTitle(notifyLanguage, "write-rewrite", notifyBookName, false),
+          body: formatNotifyFailureBody(notifyLanguage, e),
+        });
+      }
       if (opts.json) {
         log(JSON.stringify({ error: String(e) }));
       } else {
