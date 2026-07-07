@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Bell, Bot, FileText, Radar, RotateCcw, Search, Settings2, Plus, Trash2 } from "lucide-react";
+import { Bell, Bot, FileText, MessageSquare, Radar, RotateCcw, Search, Settings2, Plus, Trash2 } from "lucide-react";
 import { fetchJson, postApi, putApi, useApi } from "../hooks/use-api";
+import { usePreferencesStore } from "../store/preferences";
 import type { Theme } from "../hooks/use-theme";
 import type { TFunction } from "../hooks/use-i18n";
 import { useColors } from "../hooks/use-colors";
@@ -116,6 +117,8 @@ export function ProjectSettings({ nav, theme, t }: { nav: Nav; theme: Theme; t: 
   const [promptDraft, setPromptDraft] = useState("");
   const [notice, setNotice] = useState<{ tone: NoticeTone; message: string } | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  const toolDetailsDefaultOpen = usePreferencesStore((s) => s.toolDetailsDefaultOpen);
+  const setToolDetailsDefaultOpen = usePreferencesStore((s) => s.setToolDetailsDefaultOpen);
   const skills = skillsData?.skills ?? [];
   const promptGroups = groupPromptPacksForDisplay(promptPacksData ?? { packs: [], prompts: [] });
   const promptList = promptPacksData?.prompts ?? [];
@@ -244,6 +247,19 @@ export function ProjectSettings({ nav, theme, t }: { nav: Nav; theme: Theme; t: 
             {saving === "mode" ? t("config.saving") : t("config.save")}
           </button>
         </div>
+      </SettingsCard>
+
+      {/* Chat UI preferences — applied immediately, persisted in this browser's localStorage */}
+      <SettingsCard title={t("settings.chatUi")} description={t("settings.chatUiHint")} icon={<MessageSquare size={18} />}>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={toolDetailsDefaultOpen}
+            onChange={(e) => setToolDetailsDefaultOpen(e.target.checked)}
+          />
+          {t("settings.toolDetailsDefaultOpen")}
+        </label>
+        <p className="text-xs text-muted-foreground">{t("settings.toolDetailsDefaultOpenHint")}</p>
       </SettingsCard>
 
       <SettingsCard

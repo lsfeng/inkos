@@ -271,6 +271,10 @@ const strings = {
   "settings.detectionThreshold": { zh: "阈值", en: "Threshold" },
   "settings.detectionMaxRetries": { zh: "最大重试", en: "Max retries" },
   "settings.detectionAutoRewrite": { zh: "命中后自动反检测改写", en: "Auto anti-detect rewrite on hit" },
+  "settings.chatUi": { zh: "对话界面", en: "Chat Interface" },
+  "settings.chatUiHint": { zh: "控制对话页里操作详情的展示方式。该偏好保存在当前浏览器，不写入项目配置。", en: "Controls how operation details render on the chat page. Stored in this browser, not in project config." },
+  "settings.toolDetailsDefaultOpen": { zh: "操作详情默认展开", en: "Expand operation details by default" },
+  "settings.toolDetailsDefaultOpenHint": { zh: "关闭后，对话中的「查看操作结果」默认收起，仍可手动展开。", en: "When off, \"view result\" blocks in chat start collapsed; you can still expand them manually." },
 
   // Truth Files extras
   "truth.title": { zh: "真相文件", en: "Truth Files" },

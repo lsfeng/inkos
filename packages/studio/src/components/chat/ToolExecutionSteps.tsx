@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { buildApiUrl } from "../../hooks/use-api";
 import { chatSelectors, useChatStore } from "../../store/chat";
+import { usePreferencesStore } from "../../store/preferences";
 
 // -- Status rendering helpers --
 
@@ -626,6 +627,29 @@ function useElapsedTimer(startedAt: number, active: boolean): number {
 
 // -- Pipeline operation (sub_agent) --
 
+/**
+ * Uncontrolled <details>: `open` only sets the initial state, so manual
+ * toggling keeps working (React leaves the DOM alone while the prop value is
+ * unchanged). The key remounts the element when the global preference flips,
+ * re-applying the new default.
+ */
+export function PipelineResultDetails({ result, defaultOpen }: { result: string; defaultOpen: boolean }) {
+  return (
+    <details
+      key={defaultOpen ? "result-default-open" : "result-default-collapsed"}
+      open={defaultOpen}
+      className="mx-3 mb-3 mt-1 rounded-lg border border-border/40 bg-background/60 px-2.5 py-2 text-xs"
+    >
+      <summary className="cursor-pointer select-none font-medium text-muted-foreground hover:text-foreground">
+        查看操作结果
+      </summary>
+      <div className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words leading-5 text-foreground">
+        {result}
+      </div>
+    </details>
+  );
+}
+
 function PipelineExecution({
   exec,
   onProposedAction,
@@ -640,6 +664,7 @@ function PipelineExecution({
   const isActive = exec.status === "running" || exec.status === "processing";
   const [open, setOpen] = useState(isActive);
   const elapsedMs = useElapsedTimer(exec.startedAt, isActive);
+  const toolDetailsDefaultOpen = usePreferencesStore((s) => s.toolDetailsDefaultOpen);
 
   useEffect(() => {
     if (exec.status === "running") setOpen(true);
@@ -680,14 +705,7 @@ function PipelineExecution({
       <PlayResultPreview exec={exec} />
       <PlayEditPreview exec={exec} />
       {typeof exec.result === "string" && exec.result.trim() && (
-        <details open className="mx-3 mb-3 mt-1 rounded-lg border border-border/40 bg-background/60 px-2.5 py-2 text-xs">
-          <summary className="cursor-pointer select-none font-medium text-muted-foreground hover:text-foreground">
-            查看操作结果
-          </summary>
-          <div className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words leading-5 text-foreground">
-            {exec.result}
-          </div>
-        </details>
+        <PipelineResultDetails result={exec.result} defaultOpen={toolDetailsDefaultOpen} />
       )}
       <CollapsibleContent>
         <div className="px-3 pb-3 pt-1">
@@ -741,6 +759,47 @@ function PipelineExecution({
 
 // -- Utility tools (read/edit/grep/ls) grouped --
 
+function UtilityExecStatusIcon({ status }: { status: ToolExecution["status"] }) {
+  switch (status) {
+    case "completed":
+      return <CheckCircle2 size={10} className="text-green-600 dark:text-green-400 shrink-0" />;
+    case "error":
+      return <XCircle size={10} className="text-destructive shrink-0" />;
+    case "running":
+    case "processing":
+      return <Loader2 size={10} className="animate-spin text-primary shrink-0" />;
+  }
+}
+
+export function UtilityExecutionRow({ exec }: { exec: ToolExecution }) {
+  const title = `${exec.tool} ${String(exec.args?.path ?? exec.args?.pattern ?? "")}`;
+  const hasResult = typeof exec.result === "string" && exec.result.trim().length > 0;
+
+  if (!hasResult) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="font-mono truncate">{title}</span>
+        <UtilityExecStatusIcon status={exec.status} />
+      </div>
+    );
+  }
+
+  // Uncontrolled <details>, always collapsed by default: utility results are
+  // reference material, expanding them all would flood the transcript.
+  return (
+    <details className="group">
+      <summary className="flex cursor-pointer select-none items-center gap-2 list-none [&::-webkit-details-marker]:hidden hover:text-foreground transition-colors">
+        <span className="font-mono truncate">{title}</span>
+        <UtilityExecStatusIcon status={exec.status} />
+        <ChevronDown size={10} className="shrink-0 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="mt-1 mb-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/40 bg-background/60 px-2 py-1.5 leading-5">
+        {exec.result}
+      </div>
+    </details>
+  );
+}
+
 function UtilityToolsGroup({ execs }: { execs: ToolExecution[] }) {
   const [open, setOpen] = useState(false);
   const allDone = execs.every(e => e.status === "completed" || e.status === "error");
@@ -759,11 +818,8 @@ function UtilityToolsGroup({ execs }: { execs: ToolExecution[] }) {
       <CollapsibleContent>
         <ul className="pl-6 space-y-0.5 py-1">
           {execs.map((exec) => (
-            <li key={exec.id} className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="font-mono truncate">{exec.tool} {String(exec.args?.path ?? exec.args?.pattern ?? "")}</span>
-              {exec.status === "completed" && <CheckCircle2 size={10} className="text-green-600 dark:text-green-400 shrink-0" />}
-              {exec.status === "error" && <XCircle size={10} className="text-destructive shrink-0" />}
-              {(exec.status === "running" || exec.status === "processing") && <Loader2 size={10} className="animate-spin text-primary shrink-0" />}
+            <li key={exec.id} className="text-xs text-muted-foreground">
+              <UtilityExecutionRow exec={exec} />
             </li>
           ))}
         </ul>
