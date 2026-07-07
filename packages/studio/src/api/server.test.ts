@@ -4253,6 +4253,42 @@ describe("createStudioServer daemon lifecycle", () => {
     expect(pipelineConfigs.at(-1)).toMatchObject({ chapterReviewMode: "manual" });
   });
 
+  it("uses a book-level revisionGate override when revising a chapter", async () => {
+    await writeCompleteBookFixture(root, "demo-book", "Demo Book");
+    const rawBookPath = join(root, "books", "demo-book", "book.json");
+    const rawBook = JSON.parse(await readFile(rawBookPath, "utf-8"));
+    await writeFile(rawBookPath, JSON.stringify({
+      ...rawBook,
+      writing: { revisionGate: "always" },
+    }, null, 2), "utf-8");
+
+    const { createStudioServer } = await import("./server.js");
+    const app = createStudioServer(cloneProjectConfig() as never, root);
+
+    const response = await app.request("http://localhost/api/v1/books/demo-book/revise/3", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "spot-fix" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(pipelineConfigs.at(-1)).toMatchObject({ revisionGate: "always" });
+  });
+
+  it("defaults the revisionGate to strict when neither book nor project sets one", async () => {
+    const { createStudioServer } = await import("./server.js");
+    const app = createStudioServer(cloneProjectConfig() as never, root);
+
+    const response = await app.request("http://localhost/api/v1/books/demo-book/revise/3", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "spot-fix" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(pipelineConfigs.at(-1)).toMatchObject({ revisionGate: "strict" });
+  });
+
   it("exposes a global default model endpoint backed by llm.defaultModel", async () => {
     const { createStudioServer } = await import("./server.js");
     const app = createStudioServer(cloneProjectConfig() as never, root);

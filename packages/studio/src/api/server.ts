@@ -1686,6 +1686,37 @@ async function resolveBookChapterReviewMode(root: string, bookId: string | undef
   }
 }
 
+type RevisionGateSetting = "strict" | "lenient" | "always";
+
+function normalizeRevisionGate(gate: unknown): RevisionGateSetting {
+  return gate === "lenient" || gate === "always" ? gate : "strict";
+}
+
+function readProjectRevisionGate(config: Record<string, unknown>): RevisionGateSetting {
+  const writing = config.writing && typeof config.writing === "object" && !Array.isArray(config.writing)
+    ? config.writing as Record<string, unknown>
+    : {};
+  return normalizeRevisionGate(writing.revisionGate);
+}
+
+function readBookRevisionGate(rawBook: Record<string, unknown>): RevisionGateSetting | undefined {
+  const writing = rawBook.writing && typeof rawBook.writing === "object" && !Array.isArray(rawBook.writing)
+    ? rawBook.writing as Record<string, unknown>
+    : undefined;
+  if (!writing || writing.revisionGate !== "strict" && writing.revisionGate !== "lenient" && writing.revisionGate !== "always") return undefined;
+  return writing.revisionGate;
+}
+
+async function resolveBookRevisionGate(root: string, bookId: string | undefined, projectGate: RevisionGateSetting): Promise<RevisionGateSetting> {
+  if (!bookId || !isSafeBookId(bookId)) return projectGate;
+  try {
+    const rawBook = await loadRawBookConfig(root, bookId);
+    return readBookRevisionGate(rawBook) ?? projectGate;
+  } catch {
+    return projectGate;
+  }
+}
+
 function unquoteEnvValue(value: string): string {
   const trimmed = value.trim();
   if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
@@ -2293,6 +2324,8 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string, o
     const currentConfig = overrides?.currentConfig ?? await loadCurrentProjectConfig();
     const projectReviewMode = readProjectChapterReviewMode(currentConfig as unknown as Record<string, unknown>);
     const chapterReviewMode = await resolveBookChapterReviewMode(root, overrides?.bookIdForSettings, projectReviewMode);
+    const projectRevisionGate = readProjectRevisionGate(currentConfig as unknown as Record<string, unknown>);
+    const revisionGate = await resolveBookRevisionGate(root, overrides?.bookIdForSettings, projectRevisionGate);
     const scopedSseSink: LogSink = overrides?.sessionIdForSSE
       ? {
           write(entry) {
@@ -2314,6 +2347,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string, o
       foundationReviewRetries: currentConfig.foundation?.reviewRetries ?? 2,
       writingReviewRetries: currentConfig.writing?.reviewRetries ?? 1,
       chapterReviewMode,
+      revisionGate,
       modelOverrides: currentConfig.modelOverrides,
       notifyChannels: currentConfig.notify,
       logger,
@@ -4695,6 +4729,7 @@ export function createStudioServer(initialConfig: ProjectConfig, root: string, o
 
       const pipeline = new PipelineRunner(await buildPipelineConfig({
         externalContext: body.brief,
+        bookIdForSettings: id,
       }));
       const normalizedMode = body.mode ?? "spot-fix";
       const result = await pipeline.reviseDraft(
